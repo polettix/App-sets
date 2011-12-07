@@ -27,7 +27,6 @@ sub run {
    }
 
    my $expression = App::sets::Parser::parse($input, 0);
-   say Dumper $expression; exit 0;
    my $it = expression($expression);
    while (defined (my $item = $it->drop())) {
       print $item;
@@ -399,7 +398,7 @@ sub doublequoted_filename {
 sub unquoted_filename {
    my ($string, $pos) = @_;
    pos($string) = $pos;
-   my ($retval) = $string =~ m{\G( (?: \\. | \w)+ )}cgmxs
+   my ($retval) = $string =~ m{\G( (?: \\. | [\w.-])+ )}cgmxs
       or return;
    $retval =~ s{\\(.)}{$1}gmxs;
    return [$retval, pos($string)];
