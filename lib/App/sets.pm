@@ -157,9 +157,7 @@ use Carp;
            | unquoted_filename
    ...
 
-
-
-Left recursion elimination
+ Left recursion elimination
 
    first:      second first_tail
    first_tail: <empty> | op_intersect second first_tail
@@ -177,7 +175,7 @@ Left recursion elimination
 sub parse {
    my ($string) = @_;
    my $retval = first($string, 0);
-   my ($expression, $pos) = @$retval;
+   my ($expression, $pos) = $retval ? @$retval : (undef, 0);
    return $expression if $pos == length $string;
 
    my $offending = substr $string, $pos;
@@ -259,6 +257,21 @@ sub third_tail {
    return lrx_tail(qw< op_intersect optws fourth optws third_tail optws >)->(@_);
 }
 
+sub fourth {
+   my $retval = _sequence('optws', _alternation(
+      _sequence(_string('('), qw< optws first optws >, _string(')')),
+      'filename',
+   ), 'optws')->(@_) or return;
+   my ($struct, $pos) = @$retval;
+   my $meat = $struct->[1];
+   if (ref($meat->[0])) {
+      $retval = $meat->[0][2][0];
+   }
+   else {
+      $retval = $meat->[0];
+   }
+   return [ $retval, $pos ];
+}
 
 sub _op {
    my ($regex, $retval, $string, $pos) = @_;
@@ -276,22 +289,17 @@ sub op_subtract {
    return _op(qr{(?:minus|less|[\\-])}, 'minus', @_);
 }
 
-sub fourth {
-   my $retval = _sequence('optws', _alternation(
-      _sequence(_string('('), qw< optws first optws >, _string(')')),
-      'filename',
-   ), 'optws')->(@_) or return;
-   my ($struct, $pos) = @$retval;
-   my $meat = $struct->[1];
-   if (ref($meat->[0])) {
-      $retval = $meat->[0][2][0];
-   }
-   else {
-      $retval = $meat->[0];
-   }
-   return [ $retval, $pos ];
+sub filename {
+   my ($string, $pos) = @_;
+   pos($string) = $pos;
+   my ($retval) = $string =~ m{\G(
+        ' [^']+ '
+      | " (?: \\. | [^"])+ "
+      | (?: \\. | [\w.-])+
+   )}cgmxs or return;
+   $retval =~ s{\A(['"])(.*)\1\z}{$2}mxs;
+   return [ $retval, pos($string) ];
 }
-
 
 sub empty {
    my ($string, $pos) = @_;
@@ -359,51 +367,6 @@ sub _sequence {
 sub _resolve {
    return map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
 }
-
-sub _optional {
-   my ($element) = _resolve(@_);
-   return sub {
-      my ($string, $pos) = @_;
-      return $element->($string, $pos) || [ '', $pos ];
-   };
-}
-
-sub filename {
-   my $retval = _alternation(qw<
-      singlequoted_filename
-      doublequoted_filename
-      unquoted_filename
-   >)->(@_) or return;
-   return $retval;
-   return [ [ filename => $retval->[0] ], $retval->[1] ];
-}
-
-sub singlequoted_filename {
-   my ($string, $pos) = @_;
-   pos($string) = $pos;
-   my ($retval) = $string =~ m{\G '( [^']+ )' }cgmxs
-      or return;
-   return [$retval, pos($string)];
-}
-
-sub doublequoted_filename {
-   my ($string, $pos) = @_;
-   pos($string) = $pos;
-   my ($retval) = $string =~ m{\G "( (?: \\. | [^"])+ )" }cgmxs
-      or return;
-   $retval =~ s{\\(.)}{$1}gmxs;
-   return [$retval, pos($string)];
-}
-
-sub unquoted_filename {
-   my ($string, $pos) = @_;
-   pos($string) = $pos;
-   my ($retval) = $string =~ m{\G( (?: \\. | [\w.-])+ )}cgmxs
-      or return;
-   $retval =~ s{\\(.)}{$1}gmxs;
-   return [$retval, pos($string)];
-}
-
 
 package App::sets::Iterator;
 use strict;
