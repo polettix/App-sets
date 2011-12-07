@@ -10,13 +10,35 @@ use 5.010;
 use Data::Dumper;
 
 sub run {
-   my ($package, $input) = @_;
+   my $package = shift;
+   my $input;
+   if (@_ > 1) {
+      die "only file op file [op file...] with multiple parameters...\n"
+         unless @_ % 2;
+      my @chunks;
+      while (@_) {
+         push @chunks, escape(shift @_);
+         push @chunks, shift @_ if @_;
+      }
+      $input = join ' ', @chunks;
+   }
+   else {
+      $input = shift;
+   }
+
    my $expression = App::sets::Parser::parse($input, 0);
+   say Dumper $expression; exit 0;
    my $it = expression($expression);
    while (defined (my $item = $it->drop())) {
       print $item;
    }
    return;
+}
+
+sub escape {
+   my ($text) = @_;
+   $text =~ s{(\W)}{\\$1}gmxs;
+   return $text;
 }
 
 sub expression {
