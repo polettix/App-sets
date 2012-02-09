@@ -292,13 +292,19 @@ sub op_subtract {
 sub filename {
    my ($string, $pos) = @_;
    pos($string) = $pos;
-   my ($retval) = $string =~ m{\G(
-        ' [^']+ '
-      | " (?: \\. | [^"])+ "
-      | (?: \\. | [\w.-])+
-   )}cgmxs or return;
-   $retval =~ s{\A(['"])(.*)\1\z}{$2}mxs;
-   return [ $retval, pos($string) ];
+   my $retval;
+   if (($retval) = $string =~ m{\G ' ( [^']+ ) '}cgmxs) {
+      return [ $retval, pos($string) ];
+   }
+   elsif (($retval) = $string =~ m{\G " ( (?: \\. | [^"])+ ) "}cgmxs) {
+      $retval =~ s{\\(.)}{$1}gmxs;
+      return [ $retval, pos($string) ];
+   }
+   elsif (($retval) = $string =~ m{\G ( (?: \\. | [\w.-])+ )}cgmxs) {
+      $retval =~ s{\\(.)}{$1}gmxs;
+      return [ $retval, pos($string) ];
+   }
+   return;
 }
 
 sub empty {
