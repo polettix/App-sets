@@ -30,6 +30,7 @@ sub run {
    my $it = expression($expression);
    while (defined (my $item = $it->drop())) {
       print $item;
+      print "\n" if $ENV{SETS_IGNORE_EDGEBLANKS};
    }
    return;
 }
@@ -54,11 +55,22 @@ sub expression {
 sub file {
    my ($filename) = @_;
    die "invalid file '$filename'\n" unless -r $filename && ! -d $filename; 
-   open my $fh, '-|', 'sort', '-u', $filename
-     or die "open('$filename'): $OS_ERROR";
+   my $fh;
+   if ($ENV{SETS_ALREADY_SORTED}) {
+      open $fh, '<', $filename
+         or die "open('$filename'): $OS_ERROR";
+   }
+   else {
+      open $fh, '-|', 'sort', '-u', $filename
+         or die "open() sort -u '$filename': $OS_ERROR";
+   }
    return App::sets::Iterator->new(
       sub {
-         scalar readline $fh;
+         my $retval = <$fh>;
+         return unless defined $retval;
+         $retval =~ s{\A\s+|\s+\z}{}gmxs
+            if $ENV{SETS_IGNORE_EDGEBLANKS};
+         return $retval;
       }
    );
 } ## end sub file
