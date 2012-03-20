@@ -142,8 +142,8 @@ sub file {
    if ($config{cache}) {
       my $cache_filename = $filename . $config{cache};
       if (!-e $cache_filename) {    # generate cache file
-         WARN
-"generating cached sorted file '$cache_filename', might wait a bit...";
+         WARN "generating cached sorted file "
+           . "'$cache_filename', might wait a bit...";
          my $ifh = _sort_filehandle($filename);
          open my $ofh, '>', $cache_filename
            or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
@@ -152,8 +152,8 @@ sub file {
          }
          close $ofh or LOGDIE "close('$cache_filename'): $OS_ERROR";
       } ## end if (!-e $cache_filename)
-      INFO
-"using '$cache_filename' (assumed to be sorted) instead of '$filename'";
+      INFO "using '$cache_filename' (assumed to be sorted) "
+        . "instead of '$filename'";
       $filename = $cache_filename;
    } ## end if ($config{cache})
 
