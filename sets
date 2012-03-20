@@ -1,0 +1,1785 @@
+#!/usr/bin/env perl
+
+# __MOBUNDLE_INCLUSION__
+BEGIN {
+   my %file_for = (
+
+      'App/sets.pm' => <<'END_OF_FILE',
+ package App::sets;
+ 
+ # ABSTRACT: set operations in Perl
+ our $VERSION = '0.972';
+ 
+ use strict;
+ use warnings;
+ use English qw( -no_match_vars );
+ use IPC::Open2 qw< open2 >;
+ use 5.010;
+ use Getopt::Long qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
+ use Pod::Usage qw< pod2usage >;
+ use Log::Log4perl::Tiny qw< :easy >;
+ 
+ Log::Log4perl->easy_init({
+    layout => '[%d] [%-5p] %m%n',
+    level => $INFO,
+ });
+ 
+ my %config;
+ 
+ sub populate_config {
+    my (@args) = @_;
+ 
+    $config{sorted} = 1 if $ENV{SETS_SORTED};
+    $config{trim}   = 1 if $ENV{SETS_TRIM};
+    $config{cache}  = $ENV{SETS_CACHE} if exists $ENV{SETS_CACHE};
+    GetOptionsFromArray(\@args, \%config, qw< man help usage version
+       trim|t! sorted|s! cache|cache-sorted|S=s >)
+          or pod2usage(-verbose => 99, -sections => 'USAGE');
+    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ') if $config{version};
+    pod2usage(-input => __FILE__, -verbose => 99, -sections => 'USAGE') if $config{usage};
+    pod2usage(-input => __FILE__, -verbose => 99, -sections => 'USAGE|EXAMPLES|OPTIONS') if $config{help};
+    pod2usage(-input => __FILE__, -verbose => 2) if $config{man};
+ 
+    $config{cache} = '.sorted' if exists $config{cache} && ! (defined($config{cache}) && length($config{cache}));
+    $config{sorted} = 1 if exists $config{cache};
+ 
+    if (exists $config{cache}) {
+       INFO "using sort cache or generating it when not available";
+    }
+    elsif ($config{sorted}) {
+       INFO "assuming input files are sorted";
+    }
+    INFO "trimming away leading/trailing whitespaces"
+       if $config{trim};
+ 
+    return @args;
+ }
+ 
+ sub run {
+    my $package = shift;
+    my @args = populate_config(@_);
+ 
+    my $input;
+    if (@args > 1) {
+       shift @args if $args[0] eq '--';
+       die "only file op file [op file...] with multiple parameters (@args)...\n"
+          unless @args % 2;
+       my @chunks;
+       while (@args) {
+          push @chunks, escape(shift @args);
+          push @chunks, shift @args if @args;
+       }
+       $input = join ' ', @chunks;
+    }
+    else {
+       $input = shift @args;
+    }
+ 
+    my $expression = App::sets::Parser::parse($input, 0);
+    my $it = expression($expression);
+    while (defined (my $item = $it->drop())) {
+       print $item;
+       print "\n" if $config{trim};
+    }
+    return;
+ }
+ 
+ sub escape {
+    my ($text) = @_;
+    $text =~ s{(\W)}{\\$1}gmxs;
+    return $text;
+ }
+ 
+ sub expression {
+    my ($expression) = @_;
+    if (ref $expression) { # operation
+       my ($op, $l, $r) = @$expression;
+       return __PACKAGE__->can($op)->(expression($l), expression($r));
+    }
+    else { # plain file
+       return file($expression);
+    }
+ }
+ 
+ sub _sort_filehandle {
+    my ($filename) = @_;
+    open my $fh, '-|', 'sort', '-u', $filename
+       or die "open() sort -u '$filename': $OS_ERROR";
+    return $fh;
+ }
+ 
+ sub file {
+    my ($filename) = @_;
+    die "invalid file '$filename'\n" unless -r $filename && ! -d $filename; 
+ 
+    if ($config{cache}) {
+       my $cache_filename = $filename . $config{cache};
+       if (! -e $cache_filename) { # generate cache file
+          WARN "generating cached sorted file '$cache_filename', might wait a bit...";
+          my $ifh = _sort_filehandle($filename);
+          open my $ofh, '>', $cache_filename
+             or die "open('$cache_filename') for output: $OS_ERROR";
+          while (<$ifh>) {
+             print {$ofh} $_;
+          }
+          close $ofh or die "close('$cache_filename'): $OS_ERROR";
+       }
+       INFO "using '$cache_filename' (assumed to be sorted) instead of '$filename'";
+       $filename = $cache_filename;
+    }
+ 
+    my $fh;
+    if ($config{sorted}) {
+       INFO "opening '$filename', assuming it is already sorted"
+          unless $config{cache};
+       open $fh, '<', $filename
+          or die "open('$filename'): $OS_ERROR";
+    }
+    else {
+       INFO "opening '$filename' and sorting on the fly";
+       $fh = _sort_filehandle($filename);
+    }
+    return App::sets::Iterator->new(
+       sub {
+          my $retval = <$fh>;
+          return unless defined $retval;
+          $retval =~ s{\A\s+|\s+\z}{}gmxs
+             if $config{trim};
+          return $retval;
+       }
+    );
+ } ## end sub file
+ 
+ sub intersect {
+    my ($l, $r) = @_;
+    my ($lh, $rh);
+    return App::sets::Iterator->new(
+       sub {
+          while ('necessary') {
+             $lh //= $l->drop() // last;
+             $rh //= $r->drop() // last;
+             if ($lh eq $rh) {
+                my $retval = $lh;
+                $lh = $rh = undef;
+                return $retval;
+             }
+             elsif ($lh gt $rh) {
+                $rh = undef;
+             }
+             else {
+                $lh = undef;
+             }
+          } ## end while ('necessary')
+          return undef;
+       }
+    );
+ } ## end sub intersect
+ 
+ sub union {
+    my ($l, $r) = @_;
+    my ($lh, $rh);
+    return App::sets::Iterator->new(
+       sub {
+          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
+             if ($lh eq $rh) {
+                $r->drop();
+                return $l->drop();
+             }
+             elsif ($lh lt $rh) {
+                return $l->drop();
+             }
+             else {
+                return $r->drop();
+             }
+          }
+          while (defined($lh = $l->drop())) {
+             return $lh;
+          }
+          while (defined($rh = $r->drop())) {
+             return $rh;
+          }
+          return undef;
+       }
+    );
+ }
+ 
+ sub minus {
+    my ($l, $r) = @_;
+    my ($lh, $rh);
+    return App::sets::Iterator->new(
+       sub {
+          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
+             if ($lh eq $rh) { # shared, drop both
+                $r->drop();
+                $l->drop();
+             }
+             elsif ($lh lt $rh) {  # only in left, OK!
+                return $l->drop();
+             }
+             else {                # only in right, go on
+                $r->drop();
+             }
+          }
+          return $l->drop();
+       }
+    );
+ }
+ 
+ package App::sets::Parser;
+ use strict;
+ use warnings;
+ use Carp;
+ 
+ =begin grammar
+ 
+    parse: first
+    first:  first  op_difference second | second
+    second: second op_union      third  | third
+    third:  third  op_intersect  fourth | fourth
+ 
+    fourth: '(' first ')' | filename
+ 
+    filename: double_quoted_filename 
+            | single_quoted_filename
+            | unquoted_filename
+    ...
+ 
+  Left recursion elimination
+ 
+    first:      second first_tail
+    first_tail: <empty> | op_intersect second first_tail
+ 
+    second:      third second_tail
+    second_tail: <empty> | op_union third second_tail
+ 
+    third:      fourth third_tail
+    third_tail: <empty> | op_difference fourth third_tail
+ 
+ =end grammar
+ 
+ =cut
+ 
+ sub parse {
+    my ($string) = @_;
+    my $retval = first($string, 0);
+    my ($expression, $pos) = $retval ? @$retval : (undef, 0);
+    return $expression if $pos == length $string;
+ 
+    my $offending = substr $string, $pos;
+ 
+    my ($spaces) = $offending =~ s{\A(\s+)}{}mxs;
+    $pos += length $spaces;
+ 
+    my $nchars = 23;
+    $offending = substr($offending, 0, $nchars - 3) . '...'
+       if length($offending) > $nchars;
+ 
+    die "parse error at char $pos --> $offending\n",
+ }
+ 
+ sub lrx_head {
+    my $sequence = _sequence(@_);
+    return sub {
+       my $retval = $sequence->(@_)
+          or return;
+       my ($struct, $pos) = @$retval;
+       my ($second, $first_tail) = @{$struct}[1,3];
+       if (defined $first_tail->[0]) {
+          my ($root, $parent) = @{$first_tail->[0]};
+          $parent->[1] = $second->[0];
+          $struct = $root;
+       }
+       else {
+          $struct = $second->[0];
+       }
+       return [ $struct, $pos ];
+    }
+ }
+ 
+ sub lrx_tail {
+    my $sequence = _sequence('optws', _alternation(_sequence(@_), 'empty'));
+    return sub {
+       my $retval = $sequence->(@_) 
+          or return;
+       my ($struct, $pos) = @$retval;
+       $retval = $struct->[1];
+       if (! defined $retval->[0]) {
+          $retval = undef;
+       }
+       else { # not empty
+          my ($op, $second, $tail) = @{$retval->[0]}[0,2,4];
+          my $node = [ $op->[0], undef, $second->[0] ];
+          if (defined $tail->[0]) {
+             my ($root, $parent) = @{$tail->[0]};
+             $parent->[1] = $node; # link leaf to parent node
+             $retval = [ $root, $node ];
+          }
+          else {
+             $retval = [ $node, $node ];
+          }
+       }
+       return [$retval, $pos];
+    }
+ }
+ 
+ 
+ sub first {
+    return lrx_head(qw< optws second optws first_tail optws >)->(@_);
+ }
+ sub first_tail {
+    return lrx_tail(qw< op_subtract optws second optws first_tail optws >)->(@_);
+ }
+ 
+ sub second {
+    return lrx_head(qw< optws third optws second_tail optws >)->(@_);
+ }
+ sub second_tail {
+    return lrx_tail(qw< op_union optws third optws second_tail optws >)->(@_);
+ }
+ 
+ sub third {
+    return lrx_head(qw< optws fourth optws third_tail optws >)->(@_);
+ }
+ sub third_tail {
+    return lrx_tail(qw< op_intersect optws fourth optws third_tail optws >)->(@_);
+ }
+ 
+ sub fourth {
+    my $retval = _sequence('optws', _alternation(
+       _sequence(_string('('), qw< optws first optws >, _string(')')),
+       'filename',
+    ), 'optws')->(@_) or return;
+    my ($struct, $pos) = @$retval;
+    my $meat = $struct->[1];
+    if (ref($meat->[0])) {
+       $retval = $meat->[0][2][0];
+    }
+    else {
+       $retval = $meat->[0];
+    }
+    return [ $retval, $pos ];
+ }
+ 
+ sub _op {
+    my ($regex, $retval, $string, $pos) = @_;
+    pos($string) = $pos;
+    return unless $string =~ m{\G($regex)}cgmxs;
+    return [ $retval, pos($string) ];
+ }
+ sub op_intersect {
+    return _op(qr{(?:intersect|[iI&^])}, 'intersect', @_);
+ }
+ sub op_union {
+    return _op(qr{(?:union|[uUvV|+])}, 'union', @_);
+ }
+ sub op_subtract {
+    return _op(qr{(?:minus|less|[\\-])}, 'minus', @_);
+ }
+ 
+ sub filename {
+    my ($string, $pos) = @_;
+    pos($string) = $pos;
+    my $retval;
+    if (($retval) = $string =~ m{\G ' ( [^']+ ) '}cgmxs) {
+       return [ $retval, pos($string) ];
+    }
+    elsif (($retval) = $string =~ m{\G " ( (?: \\. | [^"])+ ) "}cgmxs) {
+       $retval =~ s{\\(.)}{$1}gmxs;
+       return [ $retval, pos($string) ];
+    }
+    elsif (($retval) = $string =~ m{\G ( (?: \\. | [\w.-])+ )}cgmxs) {
+       $retval =~ s{\\(.)}{$1}gmxs;
+       return [ $retval, pos($string) ];
+    }
+    return;
+ }
+ 
+ sub empty {
+    my ($string, $pos) = @_;
+    return [ undef, $pos ];
+ }
+ 
+ sub is_empty {
+    my ($struct) = @_;
+    return @{$struct->[0]} > 0;
+ }
+ 
+ sub ws {
+    my ($string, $pos) = @_;
+    pos($string) = $pos;
+    my ($retval) = $string =~ m{\G (\s+)}cgmxs
+       or return;
+    return [$retval, pos($string)];
+ }
+ 
+ sub optws {
+    my ($string, $pos) = @_;
+    pos($string) = $pos;
+    my ($retval) = $string =~ m{\G (\s*)}cgmxs;
+    $retval = [$retval || '', pos($string)];
+    return $retval;
+ }
+ 
+ sub _string {
+    my ($target) = @_;
+    my $len = length $target;
+    return sub {
+       my ($string, $pos) = @_;
+       return unless substr($string, $pos, $len) eq $target;
+       return [ $target, $pos + $len ];
+    }
+ }
+ 
+ sub _alternation {
+    my @subs = _resolve(@_);
+    return sub {
+       my ($string, $pos) = @_;
+       for my $sub (@subs) {
+          my $retval = $sub->($string, $pos) || next;
+          return $retval;
+       }
+       return;
+    };
+ }
+ 
+ sub _sequence {
+    my @subs = _resolve(@_);
+    return sub {
+       my ($string, $pos) = @_;
+       my @chunks;
+       for my $sub (@subs) {
+          my $chunk = $sub->($string, $pos)
+             or return;
+          push @chunks, $chunk;
+          $pos = $chunk->[1];
+       }
+       return [ \@chunks, $pos ];
+    };
+ }
+ 
+ sub _resolve {
+    return map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
+ }
+ 
+ package App::sets::Iterator;
+ use strict;
+ use warnings;
+ 
+ sub new {
+    my ($package, $it) = @_;
+    return bless {it => $it}, $package;
+ }
+ 
+ sub head {
+    my ($self) = @_;
+    return exists $self->{head} ? $self->{head} : $self->next();
+ }
+ 
+ sub next {
+    my ($self) = @_;
+    return $self->{head} = $self->{it}->();
+ }
+ 
+ sub drop {
+    my ($self) = @_;
+    my $retval = $self->head();
+    $self->next();
+    return $retval;
+ } ## end sub drop
+ 
+ 1;
+ __END__
+ 
+ =head1 NAME
+ 
+ sets - set operations in Perl
+ 
+ =head1 USAGE
+ 
+    sets [--usage] [--help] [--man] [--version]
+ 
+    sets [--cache-sorted|-S <suffix>] [--sorted|-s] [--trim|-t] expression...
+ 
+ =head1 EXAMPLES
+ 
+    # intersect two files
+    sets file1 ^ file2
+ 
+    # things are speedier when files are sorted
+    sets -s sorted-file1 ^ sorted-file2
+ 
+    # you can use a bit caching in case, generating sorted files
+    # automatically for possible multiple or later reuse. For example,
+    # the following is the symmetric difference where the sorting of
+    # the input files will be performed two times only
+    sets -S .sorted '(file2 ^ file1) + (file2 - file1)'
+ 
+    # In the example above, note that expressions with grouping need to be
+    # specified in a single string.
+ 
+    # sometimes leading and trailing whitespaces only lead to trouble, so
+    # you can trim data on-the-fly
+    sets -t file1-unix - file2-dos
+ 
+ =head1 DESCRIPTION
+ 
+ This program lets you perform set operations working on input files.
+ 
+ The set operations that can be performed are the following:
+ 
+ =over
+ 
+ =item B<< intersection >>
+ 
+ the binary operation that selects all the elements that are in both
+ the left and the right hand operand. This operation can be specified with
+ any of the following operators:
+ 
+ =over
+ 
+ =item B<< intersect >>
+ 
+ =item B<< i >>
+ 
+ =item B<< I >>
+ 
+ =item B<< & >>
+ 
+ =item B<< ^ >>
+ 
+ =back
+ 
+ =item B<< union >>
+ 
+ the binary operation that selects all the elements that are in either
+ the left or the right hand operand. This operation can be specified with
+ any of the following operators:
+ 
+ =over
+ 
+ =item B<< union >>
+ 
+ =item B<< u >>
+ 
+ =item B<< U >>
+ 
+ =item B<< v >>
+ 
+ =item B<< V >>
+ 
+ =item B<< | >>
+ 
+ =item B<< + >>
+ 
+ =back
+ 
+ =item B<< difference >>
+ 
+ the binary operation that selects all the elements that are in
+ the left but not in the right hand operand. This operation can be
+ specified with any of the following operators:
+ 
+ =over
+ 
+ =item B<< minus >>
+ 
+ =item B<< less >>
+ 
+ =item B<< \ >>
+ 
+ =item B<< - >>
+ 
+ =back
+ 
+ =back
+ 
+ 
+ Expressions can be grouped with parentheses, so that you can set the
+ precedence of the operations and create complex aggregations. For
+ example, the following expression computes the symmetric difference
+ between the two sets:
+ 
+    (set1 - set2) + (set2 - set1)
+ 
+ Expressions should be normally entered as a single string that is then
+ parsed. In case of I<simple> operations (e.g. one operation on two
+ sets) you can also provide multiple arguments. In other terms, the
+ following invocations should be equivalent:
+ 
+    sets 'set1 - set2'
+    sets set1 - set2
+ 
+ Options can be specified only as the first parameters. If your first
+ set begins with a dash, use a double dash to explicitly terminate the
+ list of options, e.g.:
+ 
+    sets -- -first-set ^ -second-set
+ 
+ In general, anyway, the first non-option argument terminates the list
+ of options as well, so the example above would work also without the
+ C<-->. In the pathological case that your file is named C<-s>, anyway,
+ you would need the explicit termination of options with C<-->. You get
+ the idea.
+ 
+ Files with spaces and other weird stuff can be specified by means
+ of quotes or escapes. The following are all valid methods of subtracting
+ C<to remove> from C<input file>:
+ 
+    sets "'input file' - 'to remove'"
+    sets '"input file" - "to remove"'
+    sets 'input\ file - to\ remove'
+    sets "input\\ file - to\\ remove"
+    sets input\ file - to\ remove
+ 
+ The first two examples use single and double quoting. The third example
+ uses a backslash to escape the spaces, as well as the fourth example in
+ which the escape character is repeated due to the interpolation rules
+ of the shell. The last example leverages upon the shell rules for
+ escaping AND the fact that simple expressions like that can be specified
+ as multiple arguments instead of a single string.
+ 
+ =head1 OPTIONS
+ 
+ =over
+ 
+ =item --cache-sorted | -S I<suffix>
+ 
+ input files are sorted and saved into a file with the same name and the
+ I<suffix> appended, so that if this file exists it is used instead of
+ the input file. In this way it is possible to generate sorted files on
+ the fly and reuse them if available. For example, suppose that you want
+ to remove the items in C<removeme> from files C<file1> and C<file2>; in
+ the following invocations:
+ 
+    sets file1 - removeme > file1.filtered
+    sets file2 - removeme > file2.filtered
+ 
+ we have that file C<removeme> would be sorted in both calls, while in the
+ following ones:
+ 
+    sets -S .sorted file1 - removeme > file1.filtered
+    sets -S .sorted file2 - removeme > file2.filtered
+ 
+ it would be sorted only in the first call, that generates C<removeme.sorted>
+ that is then reused by the second call. Of course you're trading disk space
+ for speed here, but most of the times it is exactly what you want to do when
+ you have disk space but little time to wait. This means that most of the
+ times you'll e wanting to use this option, I<unless> you're willing to wait
+ more or you already know that input files are sorted (in which case you would
+ use L</"--sorted | -s"> instead).
+ 
+ =item --help
+ 
+ print a somewhat more verbose help, showing usage, this description of
+ the options and some examples from the synopsis.
+ 
+ =item --man
+ 
+ print out the full documentation for the script.
+ 
+ =item --sorted | -s
+ 
+ in normal mode, input files are sorted on the fly before being used. If you
+ know that I<all> your input files are already sorted, you can spare the
+ extra sorting operation by using this option:
+ 
+    sets -s file1.sorted ^ file2.sorted
+ 
+ =item --trim | -t
+ 
+ if you happen to have leading and/or trailing white spaces (including
+ tabs, carriage returns, etc.) that you want to get rid of, you can turn
+ this option on. This is particularly useful if some files come from the
+ UNIX world and other ones from the DOS world, becaue they have different
+ ideas about terminating a line.
+ 
+ =item --usage
+ 
+ print a concise usage line and exit.
+ 
+ =item --version
+ 
+ print the version of the script.
+ 
+ =back
+ 
+ =head1 ENVIRONMENT
+ 
+ Some options can be set from the environment:
+ 
+ =over
+ 
+ =item C<SETS_CACHE>
+ 
+ the same as specifying C<< --cache-sorted | -S I<suffix> >> on the command line. The
+ contents of C<SETS_CACHE> is used as the I<suffix>.
+ 
+ =item C<SETS_SORTED>
+ 
+ the same as specifying C<--sorted | -s> on the command line
+ 
+ =item C<SETS_TRIM>
+ 
+ the same as specifying C<--trim | -t> on the command line
+ 
+ =back
+ 
+ =head1 AUTHOR
+ 
+ Flavio Poletti C<polettix@cpan.org>
+ 
+ =head1 LICENSE AND COPYRIGHT
+ 
+ Copyright (c) 2012, Flavio Poletti C<polettix@cpan.org>. All rights reserved.
+ 
+ This script is free software; you can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0 - see
+ L<http://www.perlfoundation.org/artistic_license_2_0> for details.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+
+END_OF_FILE
+
+      'Log/Log4perl/Tiny.pm' => <<'END_OF_FILE',
+ package Log::Log4perl::Tiny;
+ {
+   $Log::Log4perl::Tiny::VERSION = '1.1.2';
+ }
+ # ABSTRACT: mimic Log::Log4perl in one single module
+ 
+ use warnings;
+ use strict;
+ use Carp;
+ 
+ our ($TRACE, $DEBUG, $INFO, $WARN, $ERROR, $FATAL, $OFF, $DEAD);
+ my ($_instance, %name_of, %format_for, %id_for);
+ 
+ sub import {
+    my ($exporter, @list) = @_;
+    my ($caller, $file, $line) = caller();
+    no strict 'refs';
+ 
+    if (grep { $_ eq ':full_or_fake' } @list) {
+       @list = grep { $_ ne ':full_or_fake' } @list;
+       my $sue = 'use Log::Log4perl (@list)';
+       eval "
+          package $caller;
+          $sue;
+          1;
+       " and return;
+       unshift @list, ':fake';
+    } ## end if (grep { $_ eq ':full_or_fake'...
+ 
+    my (%done, $level_set);
+    ITEM:
+    for my $item (@list) {
+       next ITEM if $done{$item};
+       $done{$item} = 1;
+       if ($item =~ /^[a-zA-Z]/mxs) {
+          *{$caller . '::' . $item} = \&{$exporter . '::' . $item};
+       }
+       elsif ($item eq ':levels') {
+          for my $level (qw( TRACE DEBUG INFO WARN ERROR FATAL OFF DEAD )) {
+             *{$caller . '::' . $level} = \${$exporter . '::' . $level};
+          }
+       }
+       elsif ($item eq ':subs') {
+          push @list, qw(
+            ALWAYS TRACE DEBUG INFO WARN ERROR FATAL
+            LOGWARN LOGDIE LOGEXIT LOGCARP LOGCLUCK LOGCROAK LOGCONFESS
+            get_logger
+          );
+       } ## end elsif ($item eq ':subs')
+       elsif ($item =~ /\A : (mimic | mask | fake) \z/mxs) {
+ 
+          # module name as a string below to trick Module::ScanDeps
+          if (!'Log::Log4perl'->can('easy_init')) {
+             $INC{'Log/Log4perl.pm'} = __FILE__;
+             *Log::Log4perl::import = sub { };
+             *Log::Log4perl::easy_init = sub {
+                my ($pack, $conf) = @_;
+                if (ref $conf) {
+                   $_instance = __PACKAGE__->new($conf);
+                   $_instance->level($conf->{level})
+                     if exists $conf->{level};
+                   $_instance->format($conf->{format})
+                     if exists $conf->{format};
+                   $_instance->format($conf->{layout})
+                     if exists $conf->{layout};
+                } ## end if (ref $conf)
+                elsif (defined $conf) {
+                   $_instance->level($conf);
+                }
+             };
+          } ## end if (!Log::Log4perl->can...
+       } ## end elsif ($item =~ /\A : (mimic | mask | fake) \z/mxs)
+       elsif ($item eq ':easy') {
+          push @list, qw( :levels :subs :fake );
+       }
+       elsif (lc($item) eq ':dead_if_first') {
+          get_logger()->_set_level_if_first($DEAD);
+          $level_set = 1;
+       }
+    } ## end for my $item (@list)
+ 
+    if (! $level_set) {
+       my $logger = get_logger();
+       $logger->_set_level_if_first($INFO);
+       $logger->level($logger->level());
+    }
+ 
+    return;
+ } ## end sub import
+ 
+ sub new {
+    my $package = shift;
+    my %args = ref($_[0]) ? %{$_[0]} : @_;
+ 
+    $args{format} = $args{layout} if exists $args{layout};
+ 
+    if (exists $args{file}) {
+       open my $fh, $args{file}
+         or die "open('$args{file}'): $!";
+ 
+       # Autoflush opened file
+       my $previous = select($fh);
+       $|++;
+       select($previous);
+ 
+       $args{fh} = $fh;
+    } ## end if (exists $args{file})
+ 
+    my $self = bless {
+       fh     => \*STDERR,
+       level  => $INFO,
+    }, $package;
+ 
+    for my $accessor (qw( level fh format )) {
+       next unless defined $args{$accessor};
+       $self->$accessor($args{$accessor});
+    }
+ 
+    $self->format('[%d] [%5p] %m%n') unless exists $self->{format};
+ 
+    return $self;
+ } ## end sub new
+ 
+ sub get_logger { return $_instance ||= __PACKAGE__->new(); }
+ sub LOGLEVEL { return get_logger()->level(@_); }
+ 
+ sub format {
+    my $self = shift;
+ 
+    if (@_) {
+       $self->{format} = shift;
+       $self->{args}   = [];
+ 
+       $self->{args} = \my @args;
+       my $replace = sub {
+          my ($num, $op) = @_;
+          return '%%' if $op eq '%';
+          return "%%$op" unless defined $format_for{$op};
+          push @args, $op;
+          return "%$num$format_for{$op}[0]";
+       };
+ 
+       # transform into real format
+       my $format_chars = join '', keys %format_for;
+       $self->{format} =~ s{
+             %                      # format marker
+             ( -? \d* (?:\.\d+)? )  # number
+             ([$format_chars])      # specifier
+          }
+          {
+             $replace->($1, $2);
+          }gsmex;
+    } ## end if (@_)
+    return $self->{format};
+ } ## end sub format
+ 
+ *layout = \&format;
+ 
+ sub log {
+    my $self = shift;
+    return if $self->{level} == $DEAD;
+ 
+    my $level = shift;
+    return if $level > $self->{level};
+ 
+    my %data_for = (
+       level   => $level,
+       message => \@_,
+    );
+    my $message = sprintf $self->{format},
+      map { $format_for{$_}[1]->(\%data_for); } @{$self->{args}};
+ 
+    my $fh = $self->{fh};
+    ref($fh) eq 'CODE' ? $fh->($message, $self) : print {$fh} $message;
+ 
+    return;
+ } ## end sub log
+ 
+ sub ALWAYS { return $_instance->log($OFF, @_); }
+ 
+ sub _exit {
+    my $self = shift || $_instance;
+    exit $self->{logexit_code} if defined $self->{logexit_code};
+    exit $Log::Log4perl::LOGEXIT_CODE
+      if defined $Log::Log4perl::LOGEXIT_CODE;
+    exit 1;
+ } ## end sub _exit
+ 
+ sub logwarn {
+    my $self = shift;
+    $self->warn(@_);
+    CORE::warn(@_);
+    $self->_exit();
+ } ## end sub logwarn
+ 
+ sub logdie {
+    my $self = shift;
+    $self->fatal(@_);
+    CORE::die(@_);
+    $self->_exit();
+ } ## end sub logdie
+ 
+ sub logexit {
+    my $self = shift;
+    $self->fatal(@_);
+    $self->_exit();
+ }
+ 
+ sub logcarp {
+    my $self = shift;
+    $self->warn(@_);
+    require Carp;
+    Carp::carp(@_);
+ } ## end sub logcarp
+ 
+ sub logcluck {
+    my $self = shift;
+    $self->warn(@_);
+    require Carp;
+    Carp::cluck(@_);
+ } ## end sub logcluck
+ 
+ sub logcroak {
+    my $self = shift;
+    $self->fatal(@_);
+    require Carp;
+    Carp::croak(@_);
+ } ## end sub logcroak
+ 
+ sub logconfess {
+    my $self = shift;
+    $self->fatal(@_);
+    require Carp;
+    Carp::confess(@_);
+ } ## end sub logconfess
+ 
+ sub level {
+    my $self = shift;
+    $self = $_instance unless ref $self;
+    if (@_) {
+       my $level = shift;
+       return unless exists $id_for{$level};
+       $self->{level} = $id_for{$level};
+       $self->{_count}++;
+    }
+    return $self->{level};
+ }
+ 
+ sub _set_level_if_first {
+    my ($self, $level) = @_;
+    if (! $self->{_count}) {
+       $self->level($level);
+       delete $self->{_count};
+    }
+    return;
+ }
+ 
+ BEGIN {
+ 
+    # %format_for idea from Log::Tiny by J. M. Adler
+    my $last_log = $^T;
+    %format_for = (    # specifiers according to Log::Log4perl
+       c => [s => sub { 'main' }],
+       C => [
+          s => sub {
+             my ($internal_package) = caller 0;
+             for my $i (1 .. 4) {
+                my ($package) = caller $i;
+                last unless defined $package;
+                return $package if $package ne $internal_package;
+             }
+             return '*undef*';
+            }
+       ],
+       d => [
+          s => sub {
+             my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday,
+                $isdst) = localtime();
+             sprintf '%04d/%02d/%02d %02d:%02d:%02d',
+               $year + 1900, $mon + 1, $mday, $hour, $min, $sec;
+            }
+       ],
+       F => [s => sub { (caller(3))[1] },],
+       H => [
+          s => sub {
+             eval { require Sys::Hostname; Sys::Hostname::hostname() }
+               || '';
+            }
+       ],
+       l => [
+          s => sub {
+             my (undef, undef, undef, $subroutine) = caller(4);
+             my (undef, $filename, $line) = caller(3);
+             sprintf '%s %s (%d)', $subroutine, $filename, $line;
+            }
+       ],
+       L => [d => sub { (caller(3))[2] },],
+       m => [
+          s => sub {
+             join(
+                (defined $, ? $, : ''),
+                map { ref($_) eq 'CODE' ? $_->() : $_; } @{shift->{message}}
+             );
+          },
+       ],
+       M => [s => sub { (caller(4))[3] },],
+       n => [s => sub { $/ },],
+       p => [s => sub { $name_of{shift->{level}} },],
+       P => [d => sub { $$ },],
+       r => [d => sub { time - $^T },],
+       R => [d => sub { my $l = $last_log; ($last_log = time) - $l; },],
+       T => [
+          s => sub {
+             my $level = 4;
+             my @chunks;
+             while (my @caller = caller($level++)) {
+                push @chunks,
+                  "$caller[3]() called at $caller[1] line $caller[2]";
+             }
+             join ', ', @chunks;
+          },
+       ],
+    );
+ 
+    # From now on we're going to play with GLOBs...
+    no strict 'refs';
+ 
+    for my $name (qw( FATAL ERROR WARN INFO DEBUG TRACE )) {
+       *{__PACKAGE__ . '::' . lc($name)} = sub {
+          my $self = shift;
+          return $self->log($$name, @_);
+       };
+    } ## end for my $name (qw( FATAL ERROR WARN INFO DEBUG TRACE ))
+ 
+    for my $name (
+       qw(
+       FATAL ERROR WARN INFO DEBUG TRACE
+       LOGWARN LOGDIE LOGEXIT
+       LOGCARP LOGCLUCK LOGCROAK LOGCONFESS
+       )
+      )
+    {
+       *{__PACKAGE__ . '::' . $name} = sub {
+          $_instance->can(lc $name)->($_instance, @_);
+       };
+    } ## end for my $name (qw( FATAL ERROR WARN INFO DEBUG TRACE...
+ 
+    for my $accessor (qw( fh logexit_code )) {
+       *{__PACKAGE__ . '::' . $accessor} = sub {
+          my $self = shift;
+          $self = $_instance unless ref $self;
+          $self->{$accessor} = shift if @_;
+          return $self->{$accessor};
+       };
+    } ## end for my $accessor (qw( level fh logexit_code ))
+ 
+    my $index = -1;
+    for my $name (qw( DEAD OFF FATAL ERROR WARN INFO DEBUG TRACE )) {
+       $name_of{$$name = $index} = $name;
+       $id_for{$name} = $index;
+       $id_for{$index} = $index;
+       ++$index;
+    }
+ 
+    get_logger();    # initialises $_instance;
+ } ## end BEGIN
+ 
+ 1;                  # Magic true value required at end of module
+ 
+ 
+ =pod
+ 
+ =head1 NAME
+ 
+ Log::Log4perl::Tiny - mimic Log::Log4perl in one single module
+ 
+ =head1 VERSION
+ 
+ version 1.1.2
+ 
+ =head1 SYNOPSIS
+ 
+    use Log::Log4perl::Tiny qw( :easy );
+    Log::Log4perl->easy_init({
+       file   => '>>/var/log/something.log',
+       layout => '[%d] [%-5P:%-5p] %m%n',
+       level  => $INFO,
+    });
+ 
+    WARN 'something weird happened';
+    INFO 'just doing it';
+    DEBUG 'this does not get printed at $INFO level';
+ 
+    # LOGLEVEL isn't in Log::Log4perl, but might come handy
+    LOGLEVEL($DEBUG);   # enable debugging for small section
+    # otherwise, "get_logger()->level($DEBUG)", see below
+ 
+    DEBUG 'now this gets printed';
+    LOGLEVEL($INFO);    # disable debugging again
+    DEBUG 'skipped, again';
+    DEBUG 'complex evaluation value:', sub { 
+       # evaluation skipped if log level filters DEBUG out
+    };
+ 
+    # Object-oriented interface is available as well
+    my $logger = get_logger();
+    $logger->level($DEBUG);   # enable debugging for small section
+    $logger->debug('whatever you want');
+    $logger->level($INFO);    # disable debugging again
+ 
+    # All stealth loggers are available
+    LOGCONFESS 'I cannot accept this, for a whole stack of reasons!';
+ 
+    # Want to change layout?
+    $logger->layout('[%d %p] %m%n');
+    # or, equivalently
+    $logger->format('[%d %p] %m%n');
+ 
+    # Want to send the output somewhere else?
+    use IO::Handle;
+    open my $fh, '>>', '/path/to/new.log';
+    $fh->autoflush();
+    $logger->fh($fh);
+ 
+    # Want to handle the output message by yourself?
+    my @queue; # all log messages will be put here
+    $logger->fh(sub { push @queue, $_[0] });
+ 
+ =head1 DESCRIPTION
+ 
+ Yes... yet another logging module. Nothing particularly fancy nor
+ original, too, but a single-module implementation of the features I
+ use most from L<Log::Log4perl> for quick things, namely:
+ 
+ =over
+ 
+ =item *
+ 
+ easy mode and stealth loggers (aka log functions C<INFO>, C<WARN>, etc.);
+ 
+ =item *
+ 
+ debug message filtering by log level;
+ 
+ =item *
+ 
+ line formatting customisation;
+ 
+ =item *
+ 
+ quick sending of messages to a log file.
+ 
+ =back
+ 
+ There are many, many things that are not included; probably the most
+ notable one is the ability to provide a configuration file.
+ 
+ =head2 Why?
+ 
+ I have really nothing against L<Log::Log4perl>, to the point that
+ one of the import options is to check whether L<Log::Log4perl> is installed
+ and use it if possible. I just needed to crunch the plethora of
+ modules down to a single-file module, so that I can embed it easily in
+ scripts I use in machines where I want to reduce my impact as much as
+ possible.
+ 
+ =head2 Log Levels
+ 
+ L<Log::Log4perl::Tiny> implements all I<standard> L<Log::Log4perl>'s
+ log levels, without the possibility to change them. The correspondent
+ values are available in the following variables (in order of increasing
+ severity or I<importance>):
+ 
+ =over
+ 
+ =item C<< $TRACE >>
+ 
+ =item C<< $DEBUG >>
+ 
+ =item C<< $INFO >>
+ 
+ =item C<< $WARN >>
+ 
+ =item C<< $ERROR >>
+ 
+ =item C<< $FATAL >>
+ 
+ =back
+ 
+ The default log level is C<$INFO>. In addition to the above, the following
+ levels are defined as well:
+ 
+ =over
+ 
+ =item C<< $OFF >>
+ 
+ also in L<Log::Log4perl>, useful to turn off all logging except for C<ALWAYS>
+ 
+ =item C<< $DEAD >>
+ 
+ not in L<Log::Log4perl>, when the threshold log level is set to this value
+ every log is blocked (even when called from the C<ALWAYS> stealth logger).
+ 
+ =back
+ 
+ You can import these variables using the C<:levels> import facility,
+ or you can use the directly from the L<Log::Log4perl::Tiny> namespace.
+ They are imported automatically if the C<:easy> import option is specified.
+ 
+ =head3 Default Log Level
+ 
+ As of version 1.1.0 the default logging level is still C<$INFO> like
+ any previous version, but it is possible to modify this value to C<$DEAD>
+ through the C<:dead_if_first> import key.
+ 
+ This import key is useful to load Log::Log4perl in modules that you
+ want to publish but where you don't want to force the end user to
+ actually use it. In other terms, if you do this:
+ 
+    package My::Module;
+    use Log::Log4perl::Tiny qw( :easy :dead_if_first );
+ 
+ you will import all the functionalities associated to C<:easy> but
+ will silence the logger off I<unless> somewhere else the module
+ is loaded (and imported) without this option. In this way:
+ 
+ =over
+ 
+ =item *
+ 
+ if the user of your module does I<not> import L<Log::Log4perl::Tiny>,
+ all log messages will be dropped (thanks to the log level set to
+ C<$DEAD>)
+ 
+ =item *
+ 
+ otherwise, if the user imports L<Log::Log4perl::Tiny> without the
+ option, the log level will be set to the default value (unless it
+ has already been explicitly set somewhere else).
+ 
+ =back
+ 
+ =head2 Easy Mode Overview
+ 
+ I love L<Log::Log4perl>'s easy mode because it lets you set up a
+ sophisticated logging infrastructure with just a few keystrokes:
+ 
+    use Log::Log4perl qw( :easy );
+    Log::Log4perl->easy_init({
+       file   => '>>/var/log/something.log',
+       layout => '[%d] [%-5P:%-5p] %m%n',
+       level  => $INFO,
+    });
+    INFO 'program started, yay!';
+ 
+    use Data::Dumper;
+    DEBUG 'Some stuff in main package', sub { Dumper(\%main::) };
+ 
+ If you want, you can replicate it with just a change in the first line:
+ 
+    use Log::Log4perl::Tiny qw( :easy );
+    Log::Log4perl->easy_init({
+       file   => '>>/var/log/something.log',
+       layout => '[%d] [%-5P:%-5p] %m%n',
+       level  => $INFO,
+    });
+    INFO 'program started, yay!';
+ 
+    use Data::Dumper;
+    DEBUG 'Some stuff in main package', sub { Dumper(\%main::) };
+ 
+ Well... yes, I'm invading the L<Log::Log4perl> namespace in order to
+ reduce the needed changes as mush as possible. This is useful when I
+ begin using L<Log::Log4perl> and then realise I want to make a single
+ script with all modules embedded. There is also another reason why
+ I put C<easy_init()> in L<Log::Log4perl> namespace:
+ 
+    use Log::Log4perl::Tiny qw( :full_or_fake :easy );
+    Log::Log4perl->easy_init({
+       file   => '>>/var/log/something.log',
+       layout => '[%d] [%-5P:%-5p] %m%n',
+       level  => $INFO,
+    });
+    INFO 'program started, yay!';
+ 
+    use Data::Dumper;
+    DEBUG 'Some stuff in main package', sub { Dumper(\%main::) };
+ 
+ With import option C<full_or_fake>, in fact, the module first tries to
+ load L<Log::Log4perl> in the caller's namespace with the provided
+ options (except C<full_or_fake>, of course), returning immediately if
+ it is successful; otherwise, it tries to "fake" L<Log::Log4perl> and
+ installs its own logging functions. In this way, if L<Log::Log4perl>
+ is available it will be used, but you don't have to change anything
+ if it isn't.
+ 
+ Easy mode tries to mimic what L<Log::Log4perl> does, or at least
+ the things that (from a purely subjective point of view) are most
+ useful: C<easy_init()> and I<stealth loggers>.
+ 
+ =head2 C<easy_init()>
+ 
+ L<Log::Log4perl::Tiny> only supports three options from the big
+ brother:
+ 
+ =over
+ 
+ =item C<< level >>
+ 
+ the log level threshold. Logs sent at a higher or equal priority
+ (i.e. at a more I<important> level, or equal) will be printed out,
+ the others will be ignored. The default value is C<$INFO>;
+ 
+ =item C<< file >>
+ 
+ a file name where to send the log lines. For compatibility with
+ L<Log::Log4perl>, a 2-arguments C<open()> will be performed, which
+ means you can easily set the opening mode, e.g. C<<< >>filename >>>.
+ The default is to send logging messages to C<STDERR>;
+ 
+ =item C<< layout >>
+ 
+ the log line layout (it can also be spelled C<format>, they are
+ synonims). The default value is the following:
+ 
+    [%d] [%5p] %m%n
+ 
+ which means I<date in brackets, then log level in brackets always
+ using five chars, left-aligned, the log message and a newline>.
+ 
+ =back
+ 
+ If you call C<easy_init()> with a single unblessed scalar, it is
+ considered to be the C<level> and it will be set accordingly.
+ Otherwise, you have to pass a hash ref with the keys above.
+ 
+ =head2 Stealth Loggers
+ 
+ Stealth loggers are functions that emit a log message at a given
+ severity; they are installed when C<:easy> mode is turned on
+ (see L</Easy Mode Overview>).
+ 
+ They are named after the corresponding level:
+ 
+ =over
+ 
+ =item C<< TRACE >>
+ 
+ =item C<< DEBUG >>
+ 
+ =item C<< INFO >>
+ 
+ =item C<< WARN >>
+ 
+ =item C<< ERROR >>
+ 
+ =item C<< FATAL >>
+ 
+ =back
+ 
+ Additionally, you get the following logger functions (again, these are
+ in line with L<Log::Log4perl>):
+ 
+ =over
+ 
+ =item C<< ALWAYS >>
+ 
+ emit log whatever the configured logging level, apart from C<$OFF> that
+ disables all logging;
+ 
+ =item C<< LOGWARN >>
+ 
+ emit log at C<WARN> level, C<warn()> and then exit;
+ 
+ =item C<< LOGDIE >>
+ 
+ emit log at C<FATAL> level, C<die()> and then exit (if C<die()>
+ didn't already exit);
+ 
+ =item C<< LOGEXIT >>
+ 
+ emit log at C<FATAL> level and then exit;
+ 
+ =item C<< LOGCARP >>
+ 
+ emit log at C<WARN> level and then call C<Carp::carp()>;
+ 
+ =item C<< LOGCLUCK >>
+ 
+ emit log at C<WARN> level and then call C<Carp::cluck()>;
+ 
+ =item C<< LOGCROAK >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::croak()>;
+ 
+ =item C<< LOGCONFESS >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::confess()>;
+ 
+ =back
+ 
+ If you want to set the exit code for C<LOGWARN> and C<LOGEXIT> above
+ (and C<LOGDIE> as well, in case C<die()> does not exit by itself),
+ you can go "the L<Log::Log4perl> way" and set
+ C<$Log::Log4perl::LOGEXIT_CODE>, or set a code with
+ C<logexit_code()> - but you have to wait to read something about the
+ object-oriented interface before doing this!
+ 
+ There is also one additional stealth function that L<Log::Log4perl>
+ misses but that I think is of the outmoste importance: C<LOGLEVEL>, to
+ set the log level threshold for printing. If you want to be 100%
+ compatible with Log::Log4perl, anyway, you should rather do the following:
+ 
+    get_logger()->level(...);  # instead of LOGLEVEL(...)
+ 
+ This function does not get imported when you specify C<:easy>, anyway,
+ so you have to import it explicitly. This will help you remembering that
+ you are deviating from L<Log::Log4perl>.
+ 
+ =head2 Emitting Logs
+ 
+ To emit a log, you can call any of the stealth logger functions or any
+ of the corresponding log methods. All the parameters that you pass are
+ sent to the output stream as they are, except code references that are
+ first evaluated. This lets you embed costly evaluations (e.g. generate
+ heavy dumps of variabls) inside subroutines, and avoid the cost
+ of evaluation in case the log is filtered out:
+ 
+    use Data::Dumper;
+    LOGLEVEL($INFO); # cut DEBUG and TRACE out
+    TRACE 'costly evaluation: ', sub { Dumper($heavy_object) };
+    # Dumper() is not actually called because DEBUG level is
+    # filtered out
+ 
+ If you use the C<log()> method, the first parameter is the log level,
+ then the others are interpreted as described above.
+ 
+ =head2 Log Line Layout
+ 
+ The log line layout sets the contents of a log line. The layout is
+ configured as a C<printf>-like string, with placeholder identifiers
+ that are modeled (with simplifications) after L<Log::Log4perl>'s ones:
+ 
+     %c Category of the logging event.
+     %C Fully qualified package (or class) name of the caller
+     %d Current date in yyyy/MM/dd hh:mm:ss format
+     %F File where the logging event occurred
+     %H Hostname
+     %l Fully qualified name of the calling method followed by the
+        callers source the file name and line number between 
+        parentheses.
+     %L Line number within the file where the log statement was issued
+     %m The message to be logged
+     %M Method or function where the logging request was issued
+     %n Newline (OS-independent)
+     %p Priority of the logging event
+     %P pid of the current process
+     %r Number of milliseconds elapsed from program start to logging 
+        event
+     %% A literal percent (%) sign
+ 
+ Notably, both C<%x> (NDC) and C<%X> (MDC) are missing. Moreover, the
+ extended specifier feature with additional info in braces (like
+ C<%d{HH:mm}>) is missing, i.e. the structure of each specifier above
+ is fixed. (Thanks to C<Log::Tiny> for the cool trick of how to handle
+ the C<printf>-like string, which is probably mutuated from
+ C<Log::Log4perl> itself according to the comments).
+ 
+ =head1 INTERFACE 
+ 
+ You have two interfaces at your disposal, the functional one (with all
+ the stealth logger functions) and the object-oriented one (with
+ explicit actions upon a logger object). Choose your preferred option.
+ 
+ =head2 Functional Interface
+ 
+ The functional interface sports the following functions (imported
+ automatically when C<:easy> is passed as import option except for
+ C<LOGLEVEL>):
+ 
+ =over
+ 
+ =item C<< TRACE >>
+ 
+ =item C<< DEBUG >>
+ 
+ =item C<< INFO >>
+ 
+ =item C<< WARN >>
+ 
+ =item C<< ERROR >>
+ 
+ =item C<< FATAL >>
+ 
+ stealth logger functions, each emits a log at the corresponding level;
+ 
+ =item C<< ALWAYS >>
+ 
+ emit log whatever the configured logging level (except C<$DEAD>);
+ 
+ =item C<< LOGWARN >>
+ 
+ emit log at C<WARN> level, C<warn()> and then exit;
+ 
+ =item C<< LOGDIE >>
+ 
+ emit log at C<FATAL> level, C<die()> and then exit (if C<die()>
+ didn't already exit);
+ 
+ =item C<< LOGEXIT >>
+ 
+ emit log at C<FATAL> level and then exit;
+ 
+ =item C<< LOGCARP >>
+ 
+ emit log at C<WARN> level and then call C<Carp::carp()>;
+ 
+ =item C<< LOGCLUCK >>
+ 
+ emit log at C<WARN> level and then call C<Carp::cluck()>;
+ 
+ =item C<< LOGCROAK >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::croak()>;
+ 
+ =item C<< LOGCONFESS >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::confess()>;
+ 
+ =item C<< LOGLEVEL >>
+ 
+ (Not in L<Log::Log4perl>) (Not imported with C<:easy>)
+ 
+ set the minimum log level for sending a log message to the output;
+ 
+ =back
+ 
+ =head2 Object-Oriented Interface
+ 
+ The functional interface is actually based upon actions on
+ a pre-defined fixed instance of a C<Log::Log4perl::Tiny> object,
+ so you can do the same with a logger object as well:
+ 
+ =over
+ 
+ =item C<< get_logger >>
+ 
+ this function gives you the pre-defined logger instance (i.e. the
+ same used by the stealth logger functions described above).
+ 
+ =item C<< new >>
+ 
+ if for obscure reasons the default logger isn't what you want, you
+ can get a brand new object! The constructor accepts either a
+ list of key-values or a reference to a hash, supporting the
+ following keys:
+ 
+ =over
+ 
+ =item B<< format >>
+ 
+ =item B<< layout >>
+ 
+ =item B<< file >>
+ 
+ =item B<< level >>
+ 
+ see L<< C<easy_init()> >> and the methods below with the same
+ name
+ 
+ =item B<< fh >>
+ 
+ see method C<fh> below
+ 
+ =back
+ 
+ =back
+ 
+ The methods you can call upon the object mimic the functional
+ interface, but with lowercase method names:
+ 
+ =over
+ 
+ =item C<< trace >>
+ 
+ =item C<< debug >>
+ 
+ =item C<< info >>
+ 
+ =item C<< warn >>
+ 
+ =item C<< error >>
+ 
+ =item C<< fatal >>
+ 
+ logging functions, each emits a log at the corresponding level;
+ 
+ =item C<< always >>
+ 
+ emit log whatever the configured logging level;
+ 
+ =item C<< logwarn >>
+ 
+ emit log at C<WARN> level, C<warn()> and then exit;
+ 
+ =item C<< logdie >>
+ 
+ emit log at C<FATAL> level, C<die()> and then exit (if C<die()>
+ didn't already exit);
+ 
+ =item C<< logexit >>
+ 
+ emit log at C<FATAL> level and then exit;
+ 
+ =item C<< logcarp >>
+ 
+ emit log at C<WARN> level and then call C<Carp::carp()>;
+ 
+ =item C<< logcluck >>
+ 
+ emit log at C<WARN> level and then call C<Carp::cluck()>;
+ 
+ =item C<< logcroak >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::croak()>;
+ 
+ =item C<< logconfess >>
+ 
+ emit log at C<FATAL> level and then call C<Carp::confess()>;
+ 
+ =back
+ 
+ The main logging function is actually the following:
+ 
+ =over
+ 
+ =item C<< log >>
+ 
+ the first parameter is the log level, the rest is the message to log
+ apart from references to subroutines that are first evaluated
+ 
+ =back
+ 
+ Additionally, you have the following accessors:
+ 
+ =over
+ 
+ =item C<< level >>
+ 
+ get/set the minimum level for sending messages to the output stream.
+ By default the level is set to C<$INFO>.
+ 
+ =item C<< fh >>
+ 
+ get/set the output filehandle.
+ 
+ As an extention over L<Log::Log4perl>,
+ you can also set a reference to a subroutine as a filehandle, in
+ which case it will be called with two parameters: the message that
+ would be print and a reference to the logger object that is calling
+ the sub. For example, if you simply want to collect the log
+ messages without actually outputting them anywhere, you can do this:
+ 
+    my @messages;
+    get_logger()->fh(sub {
+       my ($message, $logger) = @_;
+       push @messages, $message;
+       return;
+    });
+ 
+ By default this parameter is set to be equal to C<STDERR>.
+ 
+ =item C<< format >>
+ 
+ =item C<< layout >>
+ 
+ get/set the line formatting;
+ 
+ =item C<< logexit_code >>
+ 
+ get/set the exit code to be used with C<logexit()> and C<logwarn()> (and
+ C<logdie()> as well if C<die()> doesn't exit).
+ 
+ =back
+ 
+ =head1 DEPENDENCIES
+ 
+ None.
+ 
+ =head1 BUGS AND LIMITATIONS
+ 
+ No bugs have been reported.
+ 
+ Please report any bugs or feature requests through http://rt.cpan.org/
+ 
+ =head1 SEE ALSO
+ 
+ L<Log::Log4perl> is one of the most useful modules I ever used, go check it!
+ 
+ =head1 AUTHOR
+ 
+ Flavio Poletti <polettix@cpan.org>
+ 
+ =head1 COPYRIGHT AND LICENSE
+ 
+ Copyright (C) 2010 by Flavio Poletti <polettix@cpan.org>.
+ 
+ This module is free software.  You can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+ 
+ 
+ __END__
+ 
+
+END_OF_FILE
+
+   );
+
+   unshift @INC, sub {
+      my ($me, $packfile) = @_;
+      return unless exists $file_for{$packfile};
+      (my $text = $file_for{$packfile}) =~ s/^\ //gmxs;
+      chop($text); # added \n at the end
+      open my $fh, '<', \$text or die "open(): $!\n";
+      return $fh;
+   };
+} ## end BEGIN
+# __MOBUNDLE_INCLUSION__
+
+use App::sets;
+App::sets->run(@ARGV);
+
