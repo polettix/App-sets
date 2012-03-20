@@ -25,7 +25,7 @@ my %config;
 sub file_for_docs {
    my $packfile = 'App/sets.pm';
    my $entry = $INC{$packfile};
-   return ref($entry) ? $entry->($packfile, $packfile) : $entry;
+   return ref($entry) ? $entry->($entry, $packfile) : $entry;
 }
 
 sub populate_config {
