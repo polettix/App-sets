@@ -24,7 +24,7 @@ my %config;
 
 sub file_for_docs {
    my $packfile = 'App/sets.pm';
-   my $entry = $INC{$packfile};
+   my $entry    = $INC{$packfile};
    return ref($entry) ? $entry->($entry, $packfile) : $entry;
 }
 
@@ -38,12 +38,18 @@ sub populate_config {
       \@args, \%config, qw< man help usage version
         trim|t! sorted|s! cache|cache-sorted|S=s >
      )
-     or
-     pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs());
+     or pod2usage(
+      -verbose  => 99,
+      -sections => 'USAGE',
+      -input    => file_for_docs()
+     );
    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
      if $config{version};
-   pod2usage(-input => file_for_docs(), -verbose => 99, -sections => 'USAGE')
-     if $config{usage};
+   pod2usage(
+      -input    => file_for_docs(),
+      -verbose  => 99,
+      -sections => 'USAGE'
+   ) if $config{usage};
    pod2usage(
       -input    => file_for_docs(),
       -verbose  => 99,
@@ -65,8 +71,11 @@ sub populate_config {
    INFO "trimming away leading/trailing whitespaces"
      if $config{trim};
 
-   pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs())
-     unless @args;
+   pod2usage(
+      -verbose  => 99,
+      -sections => 'USAGE',
+      -input    => file_for_docs()
+   ) unless @args;
 
    return @args;
 } ## end sub populate_config
@@ -78,8 +87,8 @@ sub run {
    my $input;
    if (@args > 1) {
       shift @args if $args[0] eq '--';
-      die
-"only file op file [op file...] with multiple parameters (@args)...\n"
+      LOGDIE "only file op file [op file...] "
+        . "with multiple parameters (@args)...\n"
         unless @args % 2;
       my @chunks;
       while (@args) {
@@ -121,13 +130,14 @@ sub expression {
 sub _sort_filehandle {
    my ($filename) = @_;
    open my $fh, '-|', 'sort', '-u', $filename
-     or die "open() sort -u '$filename': $OS_ERROR";
+     or LOGDIE "open() sort -u '$filename': $OS_ERROR";
    return $fh;
 } ## end sub _sort_filehandle
 
 sub file {
    my ($filename) = @_;
-   die "invalid file '$filename'\n" unless -r $filename && !-d $filename;
+   LOGDIE "invalid file '$filename'\n"
+     unless -r $filename && !-d $filename;
 
    if ($config{cache}) {
       my $cache_filename = $filename . $config{cache};
@@ -136,11 +146,11 @@ sub file {
 "generating cached sorted file '$cache_filename', might wait a bit...";
          my $ifh = _sort_filehandle($filename);
          open my $ofh, '>', $cache_filename
-           or die "open('$cache_filename') for output: $OS_ERROR";
+           or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
          while (<$ifh>) {
             print {$ofh} $_;
          }
-         close $ofh or die "close('$cache_filename'): $OS_ERROR";
+         close $ofh or LOGDIE "close('$cache_filename'): $OS_ERROR";
       } ## end if (!-e $cache_filename)
       INFO
 "using '$cache_filename' (assumed to be sorted) instead of '$filename'";
@@ -152,7 +162,7 @@ sub file {
       INFO "opening '$filename', assuming it is already sorted"
         unless $config{cache};
       open $fh, '<', $filename
-        or die "open('$filename'): $OS_ERROR";
+        or LOGDIE "open('$filename'): $OS_ERROR";
    } ## end if ($config{sorted})
    else {
       INFO "opening '$filename' and sorting on the fly";
@@ -293,7 +303,7 @@ sub parse {
    $offending = substr($offending, 0, $nchars - 3) . '...'
      if length($offending) > $nchars;
 
-   die "parse error at char $pos --> $offending\n",;
+   LOGDIE "parse error at char $pos --> $offending\n",;
 } ## end sub parse
 
 sub lrx_head {
@@ -491,7 +501,7 @@ sub _sequence {
 
 sub _resolve {
    return
-     map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
+     map { ref $_ ? $_ : __PACKAGE__->can($_) || LOGDIE "unknown $_" } @_;
 }
 
 package App::sets::Iterator;
