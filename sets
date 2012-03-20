@@ -15,32 +15,52 @@ BEGIN {
  use English qw( -no_match_vars );
  use IPC::Open2 qw< open2 >;
  use 5.010;
- use Getopt::Long qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
+ use Getopt::Long
+   qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
  use Pod::Usage qw< pod2usage >;
  use Log::Log4perl::Tiny qw< :easy >;
  
- Log::Log4perl->easy_init({
-    layout => '[%d] [%-5p] %m%n',
-    level => $INFO,
- });
+ Log::Log4perl->easy_init(
+    {
+       layout => '[%d] [%-5p] %m%n',
+       level  => $INFO,
+    }
+ );
  
  my %config;
+ 
+ sub file_for_docs {
+    my $packfile = 'App/sets.pm';
+    my $entry = $INC{$packfile};
+    return ref($entry) ? $entry->($packfile, $packfile) : $entry;
+ }
  
  sub populate_config {
     my (@args) = @_;
  
-    $config{sorted} = 1 if $ENV{SETS_SORTED};
-    $config{trim}   = 1 if $ENV{SETS_TRIM};
+    $config{sorted} = 1                if $ENV{SETS_SORTED};
+    $config{trim}   = 1                if $ENV{SETS_TRIM};
     $config{cache}  = $ENV{SETS_CACHE} if exists $ENV{SETS_CACHE};
-    GetOptionsFromArray(\@args, \%config, qw< man help usage version
-       trim|t! sorted|s! cache|cache-sorted|S=s >)
-          or pod2usage(-verbose => 99, -sections => 'USAGE');
-    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ') if $config{version};
-    pod2usage(-input => __FILE__, -verbose => 99, -sections => 'USAGE') if $config{usage};
-    pod2usage(-input => __FILE__, -verbose => 99, -sections => 'USAGE|EXAMPLES|OPTIONS') if $config{help};
-    pod2usage(-input => __FILE__, -verbose => 2) if $config{man};
+    GetOptionsFromArray(
+       \@args, \%config, qw< man help usage version
+         trim|t! sorted|s! cache|cache-sorted|S=s >
+      )
+      or
+      pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs());
+    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
+      if $config{version};
+    pod2usage(-input => file_for_docs(), -verbose => 99, -sections => 'USAGE')
+      if $config{usage};
+    pod2usage(
+       -input    => file_for_docs(),
+       -verbose  => 99,
+       -sections => 'USAGE|EXAMPLES|OPTIONS'
+    ) if $config{help};
+    pod2usage(-input => file_for_docs(), -verbose => 2) if $config{man};
  
-    $config{cache} = '.sorted' if exists $config{cache} && ! (defined($config{cache}) && length($config{cache}));
+    $config{cache} = '.sorted'
+      if exists $config{cache}
+         && !(defined($config{cache}) && length($config{cache}));
     $config{sorted} = 1 if exists $config{cache};
  
     if (exists $config{cache}) {
@@ -50,39 +70,43 @@ BEGIN {
        INFO "assuming input files are sorted";
     }
     INFO "trimming away leading/trailing whitespaces"
-       if $config{trim};
+      if $config{trim};
+ 
+    pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs())
+      unless @args;
  
     return @args;
- }
+ } ## end sub populate_config
  
  sub run {
     my $package = shift;
-    my @args = populate_config(@_);
+    my @args    = populate_config(@_);
  
     my $input;
     if (@args > 1) {
        shift @args if $args[0] eq '--';
-       die "only file op file [op file...] with multiple parameters (@args)...\n"
-          unless @args % 2;
+       die
+ "only file op file [op file...] with multiple parameters (@args)...\n"
+         unless @args % 2;
        my @chunks;
        while (@args) {
           push @chunks, escape(shift @args);
           push @chunks, shift @args if @args;
        }
        $input = join ' ', @chunks;
-    }
+    } ## end if (@args > 1)
     else {
        $input = shift @args;
     }
  
     my $expression = App::sets::Parser::parse($input, 0);
     my $it = expression($expression);
-    while (defined (my $item = $it->drop())) {
+    while (defined(my $item = $it->drop())) {
        print $item;
        print "\n" if $config{trim};
     }
     return;
- }
+ } ## end sub run
  
  sub escape {
     my ($text) = @_;
@@ -92,49 +116,51 @@ BEGIN {
  
  sub expression {
     my ($expression) = @_;
-    if (ref $expression) { # operation
+    if (ref $expression) {    # operation
        my ($op, $l, $r) = @$expression;
        return __PACKAGE__->can($op)->(expression($l), expression($r));
     }
-    else { # plain file
+    else {                    # plain file
        return file($expression);
     }
- }
+ } ## end sub expression
  
  sub _sort_filehandle {
     my ($filename) = @_;
     open my $fh, '-|', 'sort', '-u', $filename
-       or die "open() sort -u '$filename': $OS_ERROR";
+      or die "open() sort -u '$filename': $OS_ERROR";
     return $fh;
- }
+ } ## end sub _sort_filehandle
  
  sub file {
     my ($filename) = @_;
-    die "invalid file '$filename'\n" unless -r $filename && ! -d $filename; 
+    die "invalid file '$filename'\n" unless -r $filename && !-d $filename;
  
     if ($config{cache}) {
        my $cache_filename = $filename . $config{cache};
-       if (! -e $cache_filename) { # generate cache file
-          WARN "generating cached sorted file '$cache_filename', might wait a bit...";
+       if (!-e $cache_filename) {    # generate cache file
+          WARN
+ "generating cached sorted file '$cache_filename', might wait a bit...";
           my $ifh = _sort_filehandle($filename);
           open my $ofh, '>', $cache_filename
-             or die "open('$cache_filename') for output: $OS_ERROR";
+            or die "open('$cache_filename') for output: $OS_ERROR";
           while (<$ifh>) {
              print {$ofh} $_;
           }
           close $ofh or die "close('$cache_filename'): $OS_ERROR";
-       }
-       INFO "using '$cache_filename' (assumed to be sorted) instead of '$filename'";
+       } ## end if (!-e $cache_filename)
+       INFO
+ "using '$cache_filename' (assumed to be sorted) instead of '$filename'";
        $filename = $cache_filename;
-    }
+    } ## end if ($config{cache})
  
     my $fh;
     if ($config{sorted}) {
        INFO "opening '$filename', assuming it is already sorted"
-          unless $config{cache};
+         unless $config{cache};
        open $fh, '<', $filename
-          or die "open('$filename'): $OS_ERROR";
-    }
+         or die "open('$filename'): $OS_ERROR";
+    } ## end if ($config{sorted})
     else {
        INFO "opening '$filename' and sorting on the fly";
        $fh = _sort_filehandle($filename);
@@ -144,7 +170,7 @@ BEGIN {
           my $retval = <$fh>;
           return unless defined $retval;
           $retval =~ s{\A\s+|\s+\z}{}gmxs
-             if $config{trim};
+            if $config{trim};
           return $retval;
        }
     );
@@ -191,7 +217,7 @@ BEGIN {
              else {
                 return $r->drop();
              }
-          }
+          } ## end while (defined($lh = $l->head...
           while (defined($lh = $l->drop())) {
              return $lh;
           }
@@ -201,7 +227,7 @@ BEGIN {
           return undef;
        }
     );
- }
+ } ## end sub union
  
  sub minus {
     my ($l, $r) = @_;
@@ -209,21 +235,21 @@ BEGIN {
     return App::sets::Iterator->new(
        sub {
           while (defined($lh = $l->head()) && defined($rh = $r->head())) {
-             if ($lh eq $rh) { # shared, drop both
+             if ($lh eq $rh) {    # shared, drop both
                 $r->drop();
                 $l->drop();
              }
-             elsif ($lh lt $rh) {  # only in left, OK!
+             elsif ($lh lt $rh) {    # only in left, OK!
                 return $l->drop();
              }
-             else {                # only in right, go on
+             else {                  # only in right, go on
                 $r->drop();
              }
-          }
+          } ## end while (defined($lh = $l->head...
           return $l->drop();
        }
     );
- }
+ } ## end sub minus
  
  package App::sets::Parser;
  use strict;
@@ -272,18 +298,18 @@ BEGIN {
  
     my $nchars = 23;
     $offending = substr($offending, 0, $nchars - 3) . '...'
-       if length($offending) > $nchars;
+      if length($offending) > $nchars;
  
-    die "parse error at char $pos --> $offending\n",
- }
+    die "parse error at char $pos --> $offending\n",;
+ } ## end sub parse
  
  sub lrx_head {
     my $sequence = _sequence(@_);
     return sub {
        my $retval = $sequence->(@_)
-          or return;
+         or return;
        my ($struct, $pos) = @$retval;
-       my ($second, $first_tail) = @{$struct}[1,3];
+       my ($second, $first_tail) = @{$struct}[1, 3];
        if (defined $first_tail->[0]) {
           my ($root, $parent) = @{$first_tail->[0]};
           $parent->[1] = $second->[0];
@@ -292,63 +318,73 @@ BEGIN {
        else {
           $struct = $second->[0];
        }
-       return [ $struct, $pos ];
-    }
- }
+       return [$struct, $pos];
+      }
+ } ## end sub lrx_head
  
  sub lrx_tail {
     my $sequence = _sequence('optws', _alternation(_sequence(@_), 'empty'));
     return sub {
-       my $retval = $sequence->(@_) 
-          or return;
+       my $retval = $sequence->(@_)
+         or return;
        my ($struct, $pos) = @$retval;
        $retval = $struct->[1];
-       if (! defined $retval->[0]) {
+       if (!defined $retval->[0]) {
           $retval = undef;
        }
-       else { # not empty
-          my ($op, $second, $tail) = @{$retval->[0]}[0,2,4];
-          my $node = [ $op->[0], undef, $second->[0] ];
+       else {    # not empty
+          my ($op, $second, $tail) = @{$retval->[0]}[0, 2, 4];
+          my $node = [$op->[0], undef, $second->[0]];
           if (defined $tail->[0]) {
              my ($root, $parent) = @{$tail->[0]};
-             $parent->[1] = $node; # link leaf to parent node
-             $retval = [ $root, $node ];
+             $parent->[1] = $node;    # link leaf to parent node
+             $retval = [$root, $node];
           }
           else {
-             $retval = [ $node, $node ];
+             $retval = [$node, $node];
           }
-       }
+       } ## end else [ if (!defined $retval->...
        return [$retval, $pos];
-    }
- }
- 
+      }
+ } ## end sub lrx_tail
  
  sub first {
     return lrx_head(qw< optws second optws first_tail optws >)->(@_);
  }
+ 
  sub first_tail {
-    return lrx_tail(qw< op_subtract optws second optws first_tail optws >)->(@_);
+    return lrx_tail(qw< op_subtract optws second optws first_tail optws >)
+      ->(@_);
  }
  
  sub second {
     return lrx_head(qw< optws third optws second_tail optws >)->(@_);
  }
+ 
  sub second_tail {
-    return lrx_tail(qw< op_union optws third optws second_tail optws >)->(@_);
+    return lrx_tail(qw< op_union optws third optws second_tail optws >)
+      ->(@_);
  }
  
  sub third {
     return lrx_head(qw< optws fourth optws third_tail optws >)->(@_);
  }
+ 
  sub third_tail {
-    return lrx_tail(qw< op_intersect optws fourth optws third_tail optws >)->(@_);
+    return lrx_tail(qw< op_intersect optws fourth optws third_tail optws >)
+      ->(@_);
  }
  
  sub fourth {
-    my $retval = _sequence('optws', _alternation(
-       _sequence(_string('('), qw< optws first optws >, _string(')')),
-       'filename',
-    ), 'optws')->(@_) or return;
+    my $retval = _sequence(
+       'optws',
+       _alternation(
+          _sequence(_string('('), qw< optws first optws >, _string(')')),
+          'filename',
+       ),
+       'optws'
+      )->(@_)
+      or return;
     my ($struct, $pos) = @$retval;
     my $meat = $struct->[1];
     if (ref($meat->[0])) {
@@ -357,21 +393,24 @@ BEGIN {
     else {
        $retval = $meat->[0];
     }
-    return [ $retval, $pos ];
- }
+    return [$retval, $pos];
+ } ## end sub fourth
  
  sub _op {
     my ($regex, $retval, $string, $pos) = @_;
     pos($string) = $pos;
     return unless $string =~ m{\G($regex)}cgmxs;
-    return [ $retval, pos($string) ];
- }
+    return [$retval, pos($string)];
+ } ## end sub _op
+ 
  sub op_intersect {
     return _op(qr{(?:intersect|[iI&^])}, 'intersect', @_);
  }
+ 
  sub op_union {
     return _op(qr{(?:union|[uUvV|+])}, 'union', @_);
  }
+ 
  sub op_subtract {
     return _op(qr{(?:minus|less|[\\-])}, 'minus', @_);
  }
@@ -381,22 +420,22 @@ BEGIN {
     pos($string) = $pos;
     my $retval;
     if (($retval) = $string =~ m{\G ' ( [^']+ ) '}cgmxs) {
-       return [ $retval, pos($string) ];
+       return [$retval, pos($string)];
     }
     elsif (($retval) = $string =~ m{\G " ( (?: \\. | [^"])+ ) "}cgmxs) {
        $retval =~ s{\\(.)}{$1}gmxs;
-       return [ $retval, pos($string) ];
+       return [$retval, pos($string)];
     }
     elsif (($retval) = $string =~ m{\G ( (?: \\. | [\w.-])+ )}cgmxs) {
        $retval =~ s{\\(.)}{$1}gmxs;
-       return [ $retval, pos($string) ];
+       return [$retval, pos($string)];
     }
     return;
- }
+ } ## end sub filename
  
  sub empty {
     my ($string, $pos) = @_;
-    return [ undef, $pos ];
+    return [undef, $pos];
  }
  
  sub is_empty {
@@ -408,9 +447,9 @@ BEGIN {
     my ($string, $pos) = @_;
     pos($string) = $pos;
     my ($retval) = $string =~ m{\G (\s+)}cgmxs
-       or return;
+      or return;
     return [$retval, pos($string)];
- }
+ } ## end sub ws
  
  sub optws {
     my ($string, $pos) = @_;
@@ -418,7 +457,7 @@ BEGIN {
     my ($retval) = $string =~ m{\G (\s*)}cgmxs;
     $retval = [$retval || '', pos($string)];
     return $retval;
- }
+ } ## end sub optws
  
  sub _string {
     my ($target) = @_;
@@ -426,9 +465,9 @@ BEGIN {
     return sub {
        my ($string, $pos) = @_;
        return unless substr($string, $pos, $len) eq $target;
-       return [ $target, $pos + $len ];
-    }
- }
+       return [$target, $pos + $len];
+      }
+ } ## end sub _string
  
  sub _alternation {
     my @subs = _resolve(@_);
@@ -440,7 +479,7 @@ BEGIN {
        }
        return;
     };
- }
+ } ## end sub _alternation
  
  sub _sequence {
     my @subs = _resolve(@_);
@@ -449,16 +488,17 @@ BEGIN {
        my @chunks;
        for my $sub (@subs) {
           my $chunk = $sub->($string, $pos)
-             or return;
+            or return;
           push @chunks, $chunk;
           $pos = $chunk->[1];
-       }
-       return [ \@chunks, $pos ];
+       } ## end for my $sub (@subs)
+       return [\@chunks, $pos];
     };
- }
+ } ## end sub _sequence
  
  sub _resolve {
-    return map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
+    return
+      map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
  }
  
  package App::sets::Iterator;
