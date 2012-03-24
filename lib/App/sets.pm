@@ -555,7 +555,7 @@ sets - set operations in Perl
    # automatically for possible multiple or later reuse. For example,
    # the following is the symmetric difference where the sorting of
    # the input files will be performed two times only
-   sets -S .sorted '(file2 ^ file1) + (file2 - file1)'
+   sets -S .sorted '(file1 - file2) + (file2 - file1)'
 
    # In the example above, note that expressions with grouping need to be
    # specified in a single string.
