@@ -31,8 +31,8 @@ BEGIN {
  
  sub file_for_docs {
     my $packfile = 'App/sets.pm';
-    my $entry = $INC{$packfile};
-    return ref($entry) ? $entry->($packfile, $packfile) : $entry;
+    my $entry    = $INC{$packfile};
+    return ref($entry) ? $entry->($entry, $packfile) : $entry;
  }
  
  sub populate_config {
@@ -45,12 +45,18 @@ BEGIN {
        \@args, \%config, qw< man help usage version
          trim|t! sorted|s! cache|cache-sorted|S=s >
       )
-      or
-      pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs());
+      or pod2usage(
+       -verbose  => 99,
+       -sections => 'USAGE',
+       -input    => file_for_docs()
+      );
     pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
       if $config{version};
-    pod2usage(-input => file_for_docs(), -verbose => 99, -sections => 'USAGE')
-      if $config{usage};
+    pod2usage(
+       -input    => file_for_docs(),
+       -verbose  => 99,
+       -sections => 'USAGE'
+    ) if $config{usage};
     pod2usage(
        -input    => file_for_docs(),
        -verbose  => 99,
@@ -72,8 +78,11 @@ BEGIN {
     INFO "trimming away leading/trailing whitespaces"
       if $config{trim};
  
-    pod2usage(-verbose => 99, -sections => 'USAGE', -input => file_for_docs())
-      unless @args;
+    pod2usage(
+       -verbose  => 99,
+       -sections => 'USAGE',
+       -input    => file_for_docs()
+    ) unless @args;
  
     return @args;
  } ## end sub populate_config
@@ -85,8 +94,8 @@ BEGIN {
     my $input;
     if (@args > 1) {
        shift @args if $args[0] eq '--';
-       die
- "only file op file [op file...] with multiple parameters (@args)...\n"
+       LOGDIE "only file op file [op file...] "
+         . "with multiple parameters (@args)...\n"
          unless @args % 2;
        my @chunks;
        while (@args) {
@@ -128,29 +137,30 @@ BEGIN {
  sub _sort_filehandle {
     my ($filename) = @_;
     open my $fh, '-|', 'sort', '-u', $filename
-      or die "open() sort -u '$filename': $OS_ERROR";
+      or LOGDIE "open() sort -u '$filename': $OS_ERROR";
     return $fh;
  } ## end sub _sort_filehandle
  
  sub file {
     my ($filename) = @_;
-    die "invalid file '$filename'\n" unless -r $filename && !-d $filename;
+    LOGDIE "invalid file '$filename'\n"
+      unless -r $filename && !-d $filename;
  
     if ($config{cache}) {
        my $cache_filename = $filename . $config{cache};
        if (!-e $cache_filename) {    # generate cache file
-          WARN
- "generating cached sorted file '$cache_filename', might wait a bit...";
+          WARN "generating cached sorted file "
+            . "'$cache_filename', might wait a bit...";
           my $ifh = _sort_filehandle($filename);
           open my $ofh, '>', $cache_filename
-            or die "open('$cache_filename') for output: $OS_ERROR";
+            or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
           while (<$ifh>) {
              print {$ofh} $_;
           }
-          close $ofh or die "close('$cache_filename'): $OS_ERROR";
+          close $ofh or LOGDIE "close('$cache_filename'): $OS_ERROR";
        } ## end if (!-e $cache_filename)
-       INFO
- "using '$cache_filename' (assumed to be sorted) instead of '$filename'";
+       INFO "using '$cache_filename' (assumed to be sorted) "
+         . "instead of '$filename'";
        $filename = $cache_filename;
     } ## end if ($config{cache})
  
@@ -159,7 +169,7 @@ BEGIN {
        INFO "opening '$filename', assuming it is already sorted"
          unless $config{cache};
        open $fh, '<', $filename
-         or die "open('$filename'): $OS_ERROR";
+         or LOGDIE "open('$filename'): $OS_ERROR";
     } ## end if ($config{sorted})
     else {
        INFO "opening '$filename' and sorting on the fly";
@@ -300,7 +310,7 @@ BEGIN {
     $offending = substr($offending, 0, $nchars - 3) . '...'
       if length($offending) > $nchars;
  
-    die "parse error at char $pos --> $offending\n",;
+    LOGDIE "parse error at char $pos --> $offending\n",;
  } ## end sub parse
  
  sub lrx_head {
@@ -498,7 +508,7 @@ BEGIN {
  
  sub _resolve {
     return
-      map { ref $_ ? $_ : __PACKAGE__->can($_) || die "unknown $_" } @_;
+      map { ref $_ ? $_ : __PACKAGE__->can($_) || LOGDIE "unknown $_" } @_;
  }
  
  package App::sets::Iterator;
@@ -552,7 +562,7 @@ BEGIN {
     # automatically for possible multiple or later reuse. For example,
     # the following is the symmetric difference where the sorting of
     # the input files will be performed two times only
-    sets -S .sorted '(file2 ^ file1) + (file2 - file1)'
+    sets -S .sorted '(file1 - file2) + (file2 - file1)'
  
     # In the example above, note that expressions with grouping need to be
     # specified in a single string.
