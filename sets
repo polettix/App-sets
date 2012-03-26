@@ -265,6 +265,7 @@ BEGIN {
  use strict;
  use warnings;
  use Carp;
+ use Log::Log4perl::Tiny qw< :easy >;
  
  =begin grammar
  
