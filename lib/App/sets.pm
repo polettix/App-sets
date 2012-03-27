@@ -258,6 +258,7 @@ package App::sets::Parser;
 use strict;
 use warnings;
 use Carp;
+use Log::Log4perl::Tiny qw< :easy >;
 
 =begin grammar
 
