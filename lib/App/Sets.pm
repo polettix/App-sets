@@ -1,7 +1,6 @@
 package App::Sets;
 
 # ABSTRACT: set operations in Perl
-our $VERSION = '0.972';
 
 use strict;
 use warnings;
