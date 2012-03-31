@@ -1,7 +1,7 @@
 NAME
 ====
 
-App::sets - set operations in Perl
+App::Sets - set operations in Perl
 
 SYNOPSIS
 ========
