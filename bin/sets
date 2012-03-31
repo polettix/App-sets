@@ -1,4 +1,4 @@
 #!/usr/bin/env perl
 
-use App::sets;
-App::sets->run(@ARGV);
+use App::Sets;
+App::Sets->run(@ARGV);

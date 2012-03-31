@@ -1,4 +1,4 @@
-package App::sets;
+package App::Sets;
 
 # ABSTRACT: set operations in Perl
 our $VERSION = '0.972';
@@ -23,7 +23,7 @@ Log::Log4perl->easy_init(
 my %config;
 
 sub file_for_docs {
-   my $packfile = 'App/sets.pm';
+   my $packfile = 'App/Sets.pm';
    my $entry    = $INC{$packfile};
    return ref($entry) ? $entry->($entry, $packfile) : $entry;
 }
@@ -101,7 +101,7 @@ sub run {
       $input = shift @args;
    }
 
-   my $expression = App::sets::Parser::parse($input, 0);
+   my $expression = App::Sets::Parser::parse($input, 0);
    my $it = expression($expression);
    while (defined(my $item = $it->drop())) {
       print $item;
@@ -168,7 +168,7 @@ sub file {
       INFO "opening '$filename' and sorting on the fly";
       $fh = _sort_filehandle($filename);
    }
-   return App::sets::Iterator->new(
+   return App::Sets::Iterator->new(
       sub {
          my $retval = <$fh>;
          return unless defined $retval;
@@ -182,7 +182,7 @@ sub file {
 sub intersect {
    my ($l, $r) = @_;
    my ($lh, $rh);
-   return App::sets::Iterator->new(
+   return App::Sets::Iterator->new(
       sub {
          while ('necessary') {
             $lh //= $l->drop() // last;
@@ -207,7 +207,7 @@ sub intersect {
 sub union {
    my ($l, $r) = @_;
    my ($lh, $rh);
-   return App::sets::Iterator->new(
+   return App::Sets::Iterator->new(
       sub {
          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
             if ($lh eq $rh) {
@@ -235,7 +235,7 @@ sub union {
 sub minus {
    my ($l, $r) = @_;
    my ($lh, $rh);
-   return App::sets::Iterator->new(
+   return App::Sets::Iterator->new(
       sub {
          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
             if ($lh eq $rh) {    # shared, drop both
@@ -254,7 +254,7 @@ sub minus {
    );
 } ## end sub minus
 
-package App::sets::Parser;
+package App::Sets::Parser;
 use strict;
 use warnings;
 use Carp;
@@ -505,7 +505,7 @@ sub _resolve {
      map { ref $_ ? $_ : __PACKAGE__->can($_) || LOGDIE "unknown $_" } @_;
 }
 
-package App::sets::Iterator;
+package App::Sets::Iterator;
 use strict;
 use warnings;
 
