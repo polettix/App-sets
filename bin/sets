@@ -1,4 +1,4 @@
 #!/usr/bin/env perl
-
+# PODNAME: sets
 use App::Sets;
 App::Sets->run(@ARGV);
