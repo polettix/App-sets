@@ -19,6 +19,8 @@ BEGIN {
    qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
  use Pod::Usage qw< pod2usage >;
  use Log::Log4perl::Tiny qw< :easy >;
+ use App::Sets::Parser;
+ use App::Sets::Iterator;
  
  Log::Log4perl->easy_init(
     {
@@ -252,6 +254,12 @@ BEGIN {
     );
  } ## end sub minus
  
+ 1;
+ __END__
+
+END_OF_FILE
+
+      'App/Sets/Parser.pm' => <<'END_OF_FILE',
  package App::Sets::Parser;
  use strict;
  use warnings;
@@ -503,6 +511,13 @@ BEGIN {
       map { ref $_ ? $_ : __PACKAGE__->can($_) || LOGDIE "unknown $_" } @_;
  }
  
+ 1;
+ 
+ __END__
+
+END_OF_FILE
+
+      'App/Sets/Iterator.pm' => <<'END_OF_FILE',
  package App::Sets::Iterator;
  use strict;
  use warnings;
