@@ -42,6 +42,7 @@ sub populate_config {
       -sections => 'USAGE',
       -input    => file_for_docs()
      );
+   our $VERSION;
    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
      if $config{version};
    pod2usage(
