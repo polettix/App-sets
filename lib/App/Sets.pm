@@ -10,7 +10,7 @@ use 5.010;
 use Getopt::Long
   qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
 use Pod::Usage qw< pod2usage >;
-use Log::Log4perl::Tiny qw< :easy >;
+use Log::Log4perl::Tiny qw< :easy LOGLEVEL >;
 use App::Sets::Parser;
 use App::Sets::Iterator;
 
@@ -21,7 +21,10 @@ Log::Log4perl->easy_init(
    }
 );
 
-my %config;
+my %config = (
+   loglevel => 'INFO',
+   parsedebug => 0,
+);
 
 sub populate_config {
    my (@args) = @_;
@@ -29,6 +32,10 @@ sub populate_config {
    $config{sorted} = 1                if $ENV{SETS_SORTED};
    $config{trim}   = 1                if $ENV{SETS_TRIM};
    $config{cache}  = $ENV{SETS_CACHE} if exists $ENV{SETS_CACHE};
+   $config{loglevel}  = $ENV{SETS_LOGLEVEL}
+      if exists $ENV{SETS_LOGLEVEL};
+   $config{parsedebug}  = $ENV{SETS_PARSEDEBUG}
+      if exists $ENV{SETS_PARSEDEBUG};
    GetOptionsFromArray(
       \@args, \%config, qw< man help usage version
         trim|t! sorted|s! cache|cache-sorted|S=s >
@@ -49,6 +56,8 @@ sub populate_config {
       -sections => 'USAGE|EXAMPLES|OPTIONS'
    ) if $config{help};
    pod2usage(-verbose => 2) if $config{man};
+
+   LOGLEVEL $config{loglevel};
 
    $config{cache} = '.sorted'
      if exists $config{cache}
@@ -93,7 +102,11 @@ sub run {
       $input = shift @args;
    }
 
+   LOGLEVEL('DEBUG') if $config{parsedebug};
+   DEBUG "parsing >$input<";
    my $expression = App::Sets::Parser::parse($input, 0);
+   LOGLEVEL($config{loglevel});
+
    my $it = expression($expression);
    while (defined(my $item = $it->drop())) {
       print $item;

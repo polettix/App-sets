@@ -165,6 +165,7 @@ sub op_subtract {
 
 sub filename {
    my ($string, $pos) = @_;
+   DEBUG "filename() >$string< $pos";
    pos($string) = $pos;
    my $retval;
    if (($retval) = $string =~ m{\G ' ( [^']+ ) '}cgmxs) {
