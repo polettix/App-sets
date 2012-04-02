@@ -175,7 +175,7 @@ sub filename {
       $retval =~ s{\\(.)}{$1}gmxs;
       return [$retval, pos($string)];
    }
-   elsif (($retval) = $string =~ m{\G ( (?: \\. | [\w.-])+ )}cgmxs) {
+   elsif (($retval) = $string =~ m{\G ( (?: \\. | [\w.-/])+ )}cgmxs) {
       $retval =~ s{\\(.)}{$1}gmxs;
       return [$retval, pos($string)];
    }
