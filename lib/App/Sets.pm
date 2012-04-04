@@ -10,16 +10,9 @@ use 5.010;
 use Getopt::Long
   qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
 use Pod::Usage qw< pod2usage >;
-use Log::Log4perl::Tiny qw< :easy LOGLEVEL >;
+use Log::Log4perl::Tiny qw< :easy :dead_if_first LOGLEVEL >;
 use App::Sets::Parser;
 use App::Sets::Iterator;
-
-Log::Log4perl->easy_init(
-   {
-      layout => '[%d] [%-5p] %m%n',
-      level  => $INFO,
-   }
-);
 
 my %config = (
    loglevel => 'INFO',
@@ -38,7 +31,9 @@ sub populate_config {
       if exists $ENV{SETS_PARSEDEBUG};
    GetOptionsFromArray(
       \@args, \%config, qw< man help usage version
-        trim|t! sorted|s! cache|cache-sorted|S=s >
+        trim|t! sorted|s! cache|cache-sorted|S=s
+        loglevel|l=s
+        >
      )
      or pod2usage(
       -verbose  => 99,

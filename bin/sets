@@ -1,6 +1,14 @@
 #!/usr/bin/env perl
 # PODNAME: sets
 
+use Log::Log4perl::Tiny qw< :easy >;
+Log::Log4perl->easy_init(
+   {
+      layout => '[%d] [%-5p] %m%n',
+      level  => $INFO,
+   }
+);
+
 use App::Sets;
 App::Sets->run(@ARGV);
 
