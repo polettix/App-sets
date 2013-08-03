@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
 # PODNAME: sets
+# ABSTRACT: set operations in Perl
 
 # __MOBUNDLE_INCLUSION__
 BEGIN {
@@ -7,6 +8,9 @@ BEGIN {
 
       'App/Sets.pm' => <<'END_OF_FILE',
  package App::Sets;
+ {
+   $App::Sets::VERSION = '0.972';
+ }
  
  # ABSTRACT: set operations in Perl
  
@@ -18,16 +22,9 @@ BEGIN {
  use Getopt::Long
    qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
  use Pod::Usage qw< pod2usage >;
- use Log::Log4perl::Tiny qw< :easy LOGLEVEL >;
+ use Log::Log4perl::Tiny qw< :easy :dead_if_first LOGLEVEL >;
  use App::Sets::Parser;
  use App::Sets::Iterator;
- 
- Log::Log4perl->easy_init(
-    {
-       layout => '[%d] [%-5p] %m%n',
-       level  => $INFO,
-    }
- );
  
  my %config = (
     loglevel => 'INFO',
@@ -46,13 +43,15 @@ BEGIN {
        if exists $ENV{SETS_PARSEDEBUG};
     GetOptionsFromArray(
        \@args, \%config, qw< man help usage version
-         trim|t! sorted|s! cache|cache-sorted|S=s >
+         trim|t! sorted|s! cache|cache-sorted|S=s
+         loglevel|l=s
+         >
       )
       or pod2usage(
        -verbose  => 99,
        -sections => 'USAGE',
       );
-    our $VERSION; $VERSION = '0.972' unless defined $VERSION;
+    our $VERSION; ${VERSION} //= '0.972' unless defined $VERSION;
     pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
       if $config{version};
     pod2usage(
@@ -268,45 +267,52 @@ BEGIN {
  } ## end sub minus
  
  1;
+ 
+ 
+ =pod
+ 
+ =head1 NAME
+ 
+ App::Sets - set operations in Perl
+ 
+ =head1 VERSION
+ 
+ version 0.972
+ 
+ =head1 AUTHOR
+ 
+ Flavio Poletti <polettix@cpan.org>
+ 
+ =head1 COPYRIGHT AND LICENSE
+ 
+ Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+ 
+ This module is free software.  You can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+ 
+ 
  __END__
 
 END_OF_FILE
 
       'App/Sets/Parser.pm' => <<'END_OF_FILE',
  package App::Sets::Parser;
+ {
+   $App::Sets::Parser::VERSION = '0.972';
+ }
  use strict;
  use warnings;
  use Carp;
  use Log::Log4perl::Tiny qw< :easy >;
  
- =begin grammar
+ # ABSTRACT: parse input expressions of operations on sets
  
-    parse: first
-    first:  first  op_difference second | second
-    second: second op_union      third  | third
-    third:  third  op_intersect  fourth | fourth
- 
-    fourth: '(' first ')' | filename
- 
-    filename: double_quoted_filename 
-            | single_quoted_filename
-            | unquoted_filename
-    ...
- 
-  Left recursion elimination
- 
-    first:      second first_tail
-    first_tail: <empty> | op_intersect second first_tail
- 
-    second:      third second_tail
-    second_tail: <empty> | op_union third second_tail
- 
-    third:      fourth third_tail
-    third_tail: <empty> | op_difference fourth third_tail
- 
- =end grammar
- 
- =cut
  
  sub parse {
     my ($string) = @_;
@@ -527,14 +533,77 @@ END_OF_FILE
  
  1;
  
+ 
+ 
+ =pod
+ 
+ =head1 NAME
+ 
+ App::Sets::Parser - parse input expressions of operations on sets
+ 
+ =head1 VERSION
+ 
+ version 0.972
+ 
+ =begin grammar
+ 
+    parse: first
+    first:  first  op_difference second | second
+    second: second op_union      third  | third
+    third:  third  op_intersect  fourth | fourth
+ 
+    fourth: '(' first ')' | filename
+ 
+    filename: double_quoted_filename 
+            | single_quoted_filename
+            | unquoted_filename
+    ...
+ 
+  Left recursion elimination
+ 
+    first:      second first_tail
+    first_tail: <empty> | op_intersect second first_tail
+ 
+    second:      third second_tail
+    second_tail: <empty> | op_union third second_tail
+ 
+    third:      fourth third_tail
+    third_tail: <empty> | op_difference fourth third_tail
+ 
+ =end grammar
+ 
+ =cut
+ =head1 AUTHOR
+ 
+ Flavio Poletti <polettix@cpan.org>
+ 
+ =head1 COPYRIGHT AND LICENSE
+ 
+ Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+ 
+ This module is free software.  You can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+ 
+ 
  __END__
 
 END_OF_FILE
 
       'App/Sets/Iterator.pm' => <<'END_OF_FILE',
  package App::Sets::Iterator;
+ {
+   $App::Sets::Iterator::VERSION = '0.972';
+ }
  use strict;
  use warnings;
+ 
+ # ABSTRACT: convenience iterator
  
  sub new {
     my ($package, $it) = @_;
@@ -559,6 +628,36 @@ END_OF_FILE
  } ## end sub drop
  
  1;
+ 
+ 
+ =pod
+ 
+ =head1 NAME
+ 
+ App::Sets::Iterator - convenience iterator
+ 
+ =head1 VERSION
+ 
+ version 0.972
+ 
+ =head1 AUTHOR
+ 
+ Flavio Poletti <polettix@cpan.org>
+ 
+ =head1 COPYRIGHT AND LICENSE
+ 
+ Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+ 
+ This module is free software.  You can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+ 
+ 
  __END__
 
 END_OF_FILE
@@ -1599,20 +1698,37 @@ END_OF_FILE
 } ## end BEGIN
 # __MOBUNDLE_INCLUSION__
 
+use Log::Log4perl::Tiny qw< :easy >;
+Log::Log4perl->easy_init(
+   {
+      layout => '[%d] [%-5p] %m%n',
+      level  => $INFO,
+   }
+);
+
 use App::Sets;
 App::Sets->run(@ARGV);
 
-__END__
+
+
+=pod
 
 =head1 NAME
 
 sets - set operations in Perl
 
+=head1 VERSION
+
+version 0.972
+
 =head1 USAGE
 
    sets [--usage] [--help] [--man] [--version]
 
-   sets [--cache-sorted|-S <suffix>] [--sorted|-s] [--trim|-t] expression...
+   sets [--cache-sorted|-S <suffix>]
+        [--sorted|-s]
+        [--trim|-t]
+        expression...
 
 =head1 EXAMPLES
 
@@ -1780,7 +1896,7 @@ for speed here, but most of the times it is exactly what you want to do when
 you have disk space but little time to wait. This means that most of the
 times you'll e wanting to use this option, I<unless> you're willing to wait
 more or you already know that input files are sorted (in which case you would
-use L</"--sorted | -s"> instead).
+use C<< --sorted | -s >> instead).
 
 =item --help
 
@@ -1838,21 +1954,25 @@ the same as specifying C<--trim | -t> on the command line
 
 =back
 
+=cut
 =head1 AUTHOR
 
-Flavio Poletti C<polettix@cpan.org>
+Flavio Poletti <polettix@cpan.org>
 
-=head1 LICENSE AND COPYRIGHT
+=head1 COPYRIGHT AND LICENSE
 
-Copyright (c) 2012, Flavio Poletti C<polettix@cpan.org>. All rights reserved.
+Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
 
-This script is free software; you can redistribute it and/or
-modify it under the terms of the Artistic License 2.0 - see
-L<http://www.perlfoundation.org/artistic_license_2_0> for details.
+This module is free software.  You can redistribute it and/or
+modify it under the terms of the Artistic License 2.0.
 
 This program is distributed in the hope that it will be useful,
 but without any warranty; without even the implied warranty of
 merchantability or fitness for a particular purpose.
 
 =cut
+
+
+__END__
+
 
