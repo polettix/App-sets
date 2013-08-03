@@ -31,7 +31,7 @@ ALL THE REST
 
 Want to contribute? [Fork it on GitHub](https://github.com/polettix/App-sets).
 
-[App::Sets is on CPAN](http://metacpan.org/module/App::Sets) as well.
+[App::Sets is on CPAN](https://metacpan.org/release/App-Sets) as well.
 
 Want just the script, ready to go with batteries included? [Download it
 from GitHub](https://raw.github.com/polettix/App-sets/master/sets).
