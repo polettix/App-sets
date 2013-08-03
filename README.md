@@ -16,7 +16,7 @@ SYNOPSIS
     # automatically for possible multiple or later reuse. For example,
     # the following is the symmetric difference where the sorting of
     # the input files will be performed two times only
-    sets -S .sorted '(file2 ^ file1) + (file2 - file1)'
+    sets -S .sorted '(file1 - file2) + (file2 - file1)'
 
     # In the example above, note that expressions with grouping need to be
     # specified in a single string.
@@ -30,6 +30,11 @@ ALL THE REST
 ============
 
 Want to contribute? [Fork it on GitHub](https://github.com/polettix/App-sets).
+
+[App::Sets is on CPAN](http://metacpan.org/module/App::Sets) as well.
+
+Want just the script, ready to go with batteries included? [Download it
+from GitHub](https://raw.github.com/polettix/App-sets/master/sets).
 
 That's all folks!
 
