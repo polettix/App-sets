@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
 # PODNAME: sets
+# ABSTRACT: set operations in Perl
 
 use Log::Log4perl::Tiny qw< :easy >;
 Log::Log4perl->easy_init(
@@ -14,15 +15,14 @@ App::Sets->run(@ARGV);
 
 __END__
 
-=head1 NAME
-
-sets - set operations in Perl
-
 =head1 USAGE
 
    sets [--usage] [--help] [--man] [--version]
 
-   sets [--cache-sorted|-S <suffix>] [--sorted|-s] [--trim|-t] expression...
+   sets [--cache-sorted|-S <suffix>]
+        [--sorted|-s]
+        [--trim|-t]
+        expression...
 
 =head1 EXAMPLES
 
@@ -247,21 +247,5 @@ the same as specifying C<--sorted | -s> on the command line
 the same as specifying C<--trim | -t> on the command line
 
 =back
-
-=head1 AUTHOR
-
-Flavio Poletti C<polettix@cpan.org>
-
-=head1 LICENSE AND COPYRIGHT
-
-Copyright (c) 2012, Flavio Poletti C<polettix@cpan.org>. All rights reserved.
-
-This script is free software; you can redistribute it and/or
-modify it under the terms of the Artistic License 2.0 - see
-L<http://www.perlfoundation.org/artistic_license_2_0> for details.
-
-This program is distributed in the hope that it will be useful,
-but without any warranty; without even the implied warranty of
-merchantability or fitness for a particular purpose.
 
 =cut
