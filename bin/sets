@@ -190,7 +190,7 @@ for speed here, but most of the times it is exactly what you want to do when
 you have disk space but little time to wait. This means that most of the
 times you'll e wanting to use this option, I<unless> you're willing to wait
 more or you already know that input files are sorted (in which case you would
-use L</"--sorted | -s"> instead).
+use C<< --sorted | -s >> instead).
 
 =item --help
 
