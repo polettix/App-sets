@@ -2,6 +2,8 @@ package App::Sets::Iterator;
 use strict;
 use warnings;
 
+# ABSTRACT: convenience iterator
+
 sub new {
    my ($package, $it) = @_;
    return bless {it => $it}, $package;

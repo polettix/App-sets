@@ -4,6 +4,8 @@ use warnings;
 use Carp;
 use Log::Log4perl::Tiny qw< :easy >;
 
+# ABSTRACT: parse input expressions of operations on sets
+
 =begin grammar
 
    parse: first
