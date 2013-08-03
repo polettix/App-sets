@@ -39,7 +39,7 @@ sub populate_config {
       -verbose  => 99,
       -sections => 'USAGE',
      );
-   our $VERSION; $VERSION = '0.972' unless defined $VERSION;
+   our $VERSION; ${VERSION} //= '0.972' unless defined $VERSION;
    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
      if $config{version};
    pod2usage(
