@@ -1,4 +1,5 @@
 {{$NEXT}}
+   - added (and fixed) dependency on Log::Log4perl::Tiny
 
 0.972     2013-08-03 16:17:07 Europe/Rome
    - Initial release

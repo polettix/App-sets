@@ -2,7 +2,7 @@ package App::Sets::Parser;
 use strict;
 use warnings;
 use Carp;
-use Log::Log4perl::Tiny qw< :easy >;
+use Log::Log4perl::Tiny qw< :easy :dead_if_first >;
 
 # ABSTRACT: parse input expressions of operations on sets
 
