@@ -1,4 +1,5 @@
 {{$NEXT}}
+   - raised minimum perl version to 5.10
 
 0.973     2013-08-04 08:21:51 Europe/Rome
    - added (and fixed) dependency on Log::Log4perl::Tiny
