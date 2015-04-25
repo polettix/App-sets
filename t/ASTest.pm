@@ -34,7 +34,7 @@ sub run {
 }
 
 sub sets_run {
-   return run qw< perl -I lib >, catfile(qw< bin sets >), @_;
+   return run $^X, qw< -I lib >, catfile(qw< bin sets >), @_;
 }
 
 1;

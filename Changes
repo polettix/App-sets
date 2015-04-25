@@ -1,5 +1,7 @@
 {{$NEXT}}
    - raised minimum perl version to 5.10
+   - fixed https://rt.cpan.org/Public/Bug/Display.html?id=103970
+     "System perl used in tests" (thanks SREZIC for pointing out)
 
 0.973     2013-08-04 08:21:51 Europe/Rome
    - added (and fixed) dependency on Log::Log4perl::Tiny
