@@ -1,4 +1,8 @@
 {{$NEXT}}
+   - added meta information about the GitHub repository
+   - added generation of META.json
+
+0.973_01  2015-04-26 02:00:16 Europe/Rome
    - raised minimum perl version to 5.10
    - fixed https://rt.cpan.org/Public/Bug/Display.html?id=103970
      "System perl used in tests" (thanks SREZIC for pointing out)
