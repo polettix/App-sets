@@ -1,6 +1,9 @@
 {{$NEXT}}
+
+0.973_02  2015-04-27 08:56:46 Europe/Rome
    - added meta information about the GitHub repository
    - added generation of META.json
+   - patched test to work on Windows
 
 0.973_01  2015-04-26 02:00:16 Europe/Rome
    - raised minimum perl version to 5.10
