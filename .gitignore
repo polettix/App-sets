@@ -1,3 +1,4 @@
 .build/
 App-Sets-*/
 App-Sets-*.tar.gz
+*.swp
