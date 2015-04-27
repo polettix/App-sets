@@ -19,8 +19,8 @@ for my $test (test_specifications()) { # defined below
          is($res->{output}, $result, "$t1 $op $t2 - as separate items");
       }
       {
-         my $res = sets_run("$t1 $op $t2");
-         is($res->{output}, $result, "$t1 $op $t2 - as single string");
+         my $res = sets_run("'$t1' $op '$t2'");
+         is($res->{output}, $result, "'$t1' $op '$t2' - as single string");
       }
    }
 }

@@ -25,11 +25,14 @@ sub run {
    my ($e, $w, $r) = (gensym());
    my $pid = open3($w, $r, $e, @_);
    waitpid($pid, 0);
-   croak "error invoking '@_', overall exit status $?"
-      if $?;
+   my $code = $?;
+
    local $/;
-   my $output = <$r>;
    my $error  = <$e>;
+   croak "error invoking '@_', overall exit status $?, error $error"
+      if $code;
+
+   my $output = <$r>;
    return { output => $output, error => $error };
 }
 
