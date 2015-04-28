@@ -5,7 +5,6 @@ package App::Sets;
 use strict;
 use warnings;
 use English qw( -no_match_vars );
-use IPC::Open2 qw< open2 >;
 use 5.010;
 use Getopt::Long
   qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
