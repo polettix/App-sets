@@ -13,6 +13,7 @@ use Log::Log4perl::Tiny qw< :easy :dead_if_first LOGLEVEL >;
 use App::Sets::Parser;
 use App::Sets::Iterator;
 use App::Sets::Operations;
+use App::Sets::Sort qw< sort_filehandle >;
 
 my %config = (
    loglevel => 'INFO',
@@ -128,13 +129,6 @@ sub expression {
    }
 } ## end sub expression
 
-sub _sort_filehandle {
-   my ($filename) = @_;
-   open my $fh, '-|', 'sort', '-u', $filename
-     or LOGDIE "open() sort -u '$filename': $OS_ERROR";
-   return $fh;
-} ## end sub _sort_filehandle
-
 sub file {
    my ($filename) = @_;
    LOGDIE "invalid file '$filename'\n"
@@ -145,7 +139,7 @@ sub file {
       if (!-e $cache_filename) {    # generate cache file
          WARN "generating cached sorted file "
            . "'$cache_filename', might wait a bit...";
-         my $ifh = _sort_filehandle($filename);
+         my $ifh = sort_filehandle($filename);
          open my $ofh, '>', $cache_filename
            or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
          while (<$ifh>) {
@@ -167,7 +161,7 @@ sub file {
    } ## end if ($config{sorted})
    else {
       INFO "opening '$filename' and sorting on the fly";
-      $fh = _sort_filehandle($filename);
+      $fh = sort_filehandle($filename);
    }
    return App::Sets::Iterator->new(
       sub {
