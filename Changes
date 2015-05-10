@@ -1,4 +1,7 @@
 {{$NEXT}}
+   - performance enhancement upon sorting
+   - added command-line options for sort selection
+   - added documentation
 
 0.973_03  2015-05-10 13:37:24 Europe/Rome
    - added internal sorting capability
