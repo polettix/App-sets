@@ -6,7 +6,6 @@ use strict;
 use warnings;
 use English qw( -no_match_vars );
 use 5.010;
-use App::Sets::Iterator;
 use File::Temp qw< tempfile >;
 use Fcntl qw< :seek >;
 use Log::Log4perl::Tiny qw< :easy :dead_if_first >;
@@ -86,45 +85,40 @@ sub _compact {
    # convenience hash for tracking all contributors
    my %its = map {
       my $fh = $fhs->[$_];
-      $_ => App::Sets::Iterator->new(
-         sub {
-            my $retval = <$fh>;
-            return unless defined $retval;
-            chomp $retval;
-            return $retval;
-         }
-       )
+      my $head = <$fh>;
+      if (defined $head) {
+         chomp($head);
+         $_ => [ $fh, $head ];
+      }
+      else { () }
    } 0 .. $#$fhs;
 
    # iterate until all contributors are exhausted
    while (scalar keys %its) {
 
       # select the best (i.e. "lower"), cleanup on the way
-      my $best;
-      my @keys = keys %its;
+      my ($fk, @keys) = keys %its;
+      my $best = $its{$fk}[1];
       for my $key (@keys) {
-         my $head = $its{$key}->head();
-         if (! defined $head) {
-            delete $its{$key};
-            next;
-         }
-         elsif ((! defined $best) || ($best gt $head)) {
-            $best = $head;
-         }
+         my $head = $its{$key}[1];
+         $best = $head if $best gt $head;
       }
-      last unless defined $best;
       print {$ofh} $best, $INPUT_RECORD_SEPARATOR;
 
       # get rid of the best in all iterators, cleanup on the way
-      @keys = keys %its;
       KEY:
-      for my $key (@keys) {
-         my $head;
-         while (defined($head = $its{$key}->head())) {
-            next KEY if $head ne $best;
-            $its{$key}->drop()
+      for my $key ($fk, @keys) {
+         my $head = $its{$key}[1];
+         while ($head eq $best) {
+            $head = readline $its{$key}[0];
+            if (defined $head) {
+               chomp($its{$key}[1] = $head);
+            }
+            else {
+               delete $its{$key};
+               next KEY;
+            }
          }
-         delete $its{$key};
       }
    }
 
