@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+0.973_03  2015-05-10 13:37:24 Europe/Rome
+   - added internal sorting capability
+
 0.973_02  2015-04-27 08:56:46 Europe/Rome
    - added meta information about the GitHub repository
    - added generation of META.json
