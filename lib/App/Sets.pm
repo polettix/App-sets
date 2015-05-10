@@ -12,6 +12,7 @@ use Pod::Usage qw< pod2usage >;
 use Log::Log4perl::Tiny qw< :easy :dead_if_first LOGLEVEL >;
 use App::Sets::Parser;
 use App::Sets::Iterator;
+use App::Sets::Operations;
 
 my %config = (
    loglevel => 'INFO',
@@ -119,7 +120,8 @@ sub expression {
    my ($expression) = @_;
    if (ref $expression) {    # operation
       my ($op, $l, $r) = @$expression;
-      return __PACKAGE__->can($op)->(expression($l), expression($r));
+      my $sub = App::Sets::Operations->can($op);
+      return $sub->(expression($l), expression($r));
    }
    else {                    # plain file
       return file($expression);
@@ -177,81 +179,6 @@ sub file {
       }
    );
 } ## end sub file
-
-sub intersect {
-   my ($l, $r) = @_;
-   my ($lh, $rh);
-   return App::Sets::Iterator->new(
-      sub {
-         while ('necessary') {
-            $lh //= $l->drop() // last;
-            $rh //= $r->drop() // last;
-            if ($lh eq $rh) {
-               my $retval = $lh;
-               $lh = $rh = undef;
-               return $retval;
-            }
-            elsif ($lh gt $rh) {
-               $rh = undef;
-            }
-            else {
-               $lh = undef;
-            }
-         } ## end while ('necessary')
-         return undef;
-      }
-   );
-} ## end sub intersect
-
-sub union {
-   my ($l, $r) = @_;
-   my ($lh, $rh);
-   return App::Sets::Iterator->new(
-      sub {
-         while (defined($lh = $l->head()) && defined($rh = $r->head())) {
-            if ($lh eq $rh) {
-               $r->drop();
-               return $l->drop();
-            }
-            elsif ($lh lt $rh) {
-               return $l->drop();
-            }
-            else {
-               return $r->drop();
-            }
-         } ## end while (defined($lh = $l->head...
-         while (defined($lh = $l->drop())) {
-            return $lh;
-         }
-         while (defined($rh = $r->drop())) {
-            return $rh;
-         }
-         return undef;
-      }
-   );
-} ## end sub union
-
-sub minus {
-   my ($l, $r) = @_;
-   my ($lh, $rh);
-   return App::Sets::Iterator->new(
-      sub {
-         while (defined($lh = $l->head()) && defined($rh = $r->head())) {
-            if ($lh eq $rh) {    # shared, drop both
-               $r->drop();
-               $l->drop();
-            }
-            elsif ($lh lt $rh) {    # only in left, OK!
-               return $l->drop();
-            }
-            else {                  # only in right, go on
-               $r->drop();
-            }
-         } ## end while (defined($lh = $l->head...
-         return $l->drop();
-      }
-   );
-} ## end sub minus
 
 1;
 __END__
