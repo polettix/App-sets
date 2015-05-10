@@ -21,7 +21,7 @@ our %EXPORT_TAGS = (
 
 sub sort_filehandle {
    my ($filename) = @_;
-   state $has_sort = 1;
+   state $has_sort = ! $ENV{SETS_NO_SORT};
 
    if ($has_sort) {
       if (open my $fh, '-|', 'sort', '-u', $filename) {
