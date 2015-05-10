@@ -30,10 +30,15 @@ sub populate_config {
       if exists $ENV{SETS_LOGLEVEL};
    $config{parsedebug}  = $ENV{SETS_PARSEDEBUG}
       if exists $ENV{SETS_PARSEDEBUG};
+   $config{internal_sort} = $ENV{SETS_INTERNAL_SORT}
+      if exists $ENV{SETS_INTERNAL_SORT};
    GetOptionsFromArray(
       \@args, \%config, qw< man help usage version
-        trim|t! sorted|s! cache|cache-sorted|S=s
+        cache|cache-sorted|S=s
+        internal_sort|internal-sort|I!
         loglevel|l=s
+        sorted|s!
+        trim|t!
         >
      )
      or pod2usage(
@@ -139,7 +144,7 @@ sub file {
       if (!-e $cache_filename) {    # generate cache file
          WARN "generating cached sorted file "
            . "'$cache_filename', might wait a bit...";
-         my $ifh = sort_filehandle($filename);
+         my $ifh = sort_filehandle($filename, \%config);
          open my $ofh, '>', $cache_filename
            or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
          while (<$ifh>) {
@@ -161,7 +166,7 @@ sub file {
    } ## end if ($config{sorted})
    else {
       INFO "opening '$filename' and sorting on the fly";
-      $fh = sort_filehandle($filename);
+      $fh = sort_filehandle($filename, \%config);
    }
    return App::Sets::Iterator->new(
       sub {

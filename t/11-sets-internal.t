@@ -8,7 +8,7 @@ use Data::Dumper;
 use lib qw< t >;
 use ASTest;
 
-$ENV{SETS_NO_SORT} = 1;
+$ENV{SETS_INTERNAL_SORT} = 1;
 
 for my $test (test_specifications()) { # defined below
    my ($t1, $ops, $t2, $result) = @{$test}{qw< t1 op t2 result >};

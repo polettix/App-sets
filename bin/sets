@@ -20,6 +20,8 @@ __END__
    sets [--usage] [--help] [--man] [--version]
 
    sets [--cache-sorted|-S <suffix>]
+        [--internal-sort|-I]
+        [--loglevel|-l <level>]
         [--sorted|-s]
         [--trim|-t]
         expression...
@@ -197,6 +199,17 @@ use C<< --sorted | -s >> instead).
 print a somewhat more verbose help, showing usage, this description of
 the options and some examples from the synopsis.
 
+=item --internal-sort | -I
+
+force using the internal sorting facility even if external C<sort> is
+available. Some rough benchmark showed that this is slower about 7%
+with respect to using the external C<sort>, so avoid this if you can.
+
+=item --loglevel | -l I<level>
+
+set the verbosity of the logging subsystem. Allowed values (in increasing
+verbosity): C<TRACE>, C<DEBUG>, C<INFO>, C<WARN>, C<ERROR> and C<FATAL>.
+
 =item --man
 
 print out the full documentation for the script.
@@ -235,8 +248,22 @@ Some options can be set from the environment:
 
 =item C<SETS_CACHE>
 
-the same as specifying C<< --cache-sorted | -S I<suffix> >> on the command line. The
-contents of C<SETS_CACHE> is used as the I<suffix>.
+the same as specifying C<< --cache-sorted | -S I<suffix> >> on the
+command line. The contents of C<SETS_CACHE> is used as the I<suffix>.
+
+=item C<SETS_INTERNAL_SORT>
+
+the same as specifying C<< --internal-sort | -I >> on the command line.
+
+=item C<SETS_MAX_FILES>
+
+maximum number of (temporary) files to keep when using the internal sorting
+facility.
+
+=item C<SETS_MAX_RECORDS>
+
+maximum number of input records to keep in memory when using the internal
+sorting facility.
 
 =item C<SETS_SORTED>
 

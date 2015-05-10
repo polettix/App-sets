@@ -10,7 +10,7 @@ use ASTest;
 
 use App::Sets;
 
-$ENV{SETS_NO_SORT} = 1;
+$ENV{SETS_INTERNAL_SORT} = 1;
 
 close STDOUT;
 for my $test (test_specifications()) { # defined below

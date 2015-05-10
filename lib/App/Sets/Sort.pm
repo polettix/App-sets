@@ -19,8 +19,9 @@ our %EXPORT_TAGS = (
 );
 
 sub sort_filehandle {
-   my ($filename) = @_;
-   state $has_sort = ! $ENV{SETS_NO_SORT};
+   my ($filename, $config) = @_;
+   $config ||= {};
+   state $has_sort = ! $config->{internal_sort};
 
    if ($has_sort) {
       if (open my $fh, '-|', 'sort', '-u', $filename) {
