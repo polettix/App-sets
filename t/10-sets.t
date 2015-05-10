@@ -2,8 +2,7 @@
 use strict;
 use warnings;
 
-#use Test::More tests => 1; # last test to print
-use Test::More 'no_plan';  # substitute with previous line when done
+use Test::More tests => 32; # last test to print
 use Data::Dumper;
 
 use lib qw< t >;
@@ -24,6 +23,8 @@ for my $test (test_specifications()) { # defined below
       }
    }
 }
+
+done_testing();
 
 sub test_specifications {
    return (
