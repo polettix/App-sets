@@ -1,4 +1,7 @@
 {{$NEXT}}
+   - hopefully fixed issue with pipe open on Windows
+
+0.973_04  2015-05-10 18:34:31 Europe/Rome
    - performance enhancement upon sorting
    - added command-line options for sort selection
    - added documentation

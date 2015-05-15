@@ -24,10 +24,9 @@ sub sort_filehandle {
    state $has_sort = ! $config->{internal_sort};
 
    if ($has_sort) {
-      if (open my $fh, '-|', 'sort', '-u', $filename) {
-         return $fh;
-      }
-      WARN "cannot use system sort, falling back to internal implementation";
+      my $fh;
+      eval { open $fh, '-|', 'sort', '-u', $filename } and return $fh;
+      WARN 'cannot use system sort, falling back to internal implementation';
       $has_sort = 0; # from now on, use internal sort
    }
 
