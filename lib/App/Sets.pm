@@ -16,6 +16,7 @@ use App::Sets::Operations;
 use App::Sets::Sort qw< sort_filehandle >;
 
 my %config = (
+   binmode => ':raw:encoding(UTF-8)',
    loglevel => 'INFO',
    parsedebug => 0,
 );
@@ -32,8 +33,10 @@ sub populate_config {
       if exists $ENV{SETS_PARSEDEBUG};
    $config{internal_sort} = $ENV{SETS_INTERNAL_SORT}
       if exists $ENV{SETS_INTERNAL_SORT};
+   $config{binmode} = $ENV{SETS_BINMODE} if $ENV{SETS_BINMODE};
    GetOptionsFromArray(
       \@args, \%config, qw< man help usage version
+        binmode|b=s
         cache|cache-sorted|S=s
         internal_sort|internal-sort|I!
         loglevel|l=s
@@ -108,10 +111,12 @@ sub run {
    my $expression = App::Sets::Parser::parse($input, 0);
    LOGLEVEL($config{loglevel});
 
+   binmode STDOUT, $config{binmode};
+
    my $it = expression($expression);
    while (defined(my $item = $it->drop())) {
-      print $item;
-      print "\n" if $config{trim};
+      print {*STDOUT} $item;
+      print {*STDOUT} "\n" if $config{trim};
    }
    return;
 } ## end sub run

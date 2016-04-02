@@ -19,7 +19,8 @@ __END__
 
    sets [--usage] [--help] [--man] [--version]
 
-   sets [--cache-sorted|-S <suffix>]
+   sets [--binmode|-b <string>]
+        [--cache-sorted|-S <suffix>]
         [--internal-sort|-I]
         [--loglevel|-l <level>]
         [--sorted|-s]
@@ -167,6 +168,12 @@ as multiple arguments instead of a single string.
 =head1 OPTIONS
 
 =over
+
+=item --binmode | -b I<string>
+
+set a string for calling C<binmode> on STDOUT. By default,
+C<:raw:encoding(UTF-8)> is set, to normalize newlines handling and
+expect UTF-8 data in.
 
 =item --cache-sorted | -S I<suffix>
 

@@ -1,4 +1,8 @@
 {{$NEXT}}
+   - added option for binmode
+   - setting :raw:encoding(UTF-8) as default binmode for STDOUT
+
+0.973_05  2015-05-15 18:45:54 Europe/Rome
    - hopefully fixed issue with pipe open on Windows
 
 0.973_04  2015-05-10 18:34:31 Europe/Rome
