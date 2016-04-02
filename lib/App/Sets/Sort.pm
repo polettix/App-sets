@@ -1,9 +1,12 @@
 package App::Sets::Sort;
 
-# ABSTRACT: sort handling
+
 
 use strict;
 use warnings;
+
+# ABSTRACT: sort handling
+
 use English qw( -no_match_vars );
 use 5.010;
 use File::Temp qw< tempfile >;

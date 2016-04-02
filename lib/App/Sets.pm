@@ -1,9 +1,12 @@
 package App::Sets;
 
-# ABSTRACT: set operations in Perl
+
 
 use strict;
 use warnings;
+
+# ABSTRACT: set operations in Perl
+
 use English qw( -no_match_vars );
 use 5.010;
 use Getopt::Long
@@ -48,8 +51,10 @@ sub populate_config {
       -verbose  => 99,
       -sections => 'USAGE',
      );
-   our $VERSION; ${VERSION} //= '0.972' unless defined $VERSION;
-   pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
+   $App::Sets::VERSION
+        //= '0.972' unless defined $App::Sets::VERSION;
+   pod2usage(message => "$0 $App::Sets::VERSION", -verbose => 99,
+       -sections => ' ')
      if $config{version};
    pod2usage(
       -verbose  => 99,

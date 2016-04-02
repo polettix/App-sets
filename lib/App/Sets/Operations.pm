@@ -1,9 +1,12 @@
 package App::Sets::Operations;
 
-# ABSTRACT: set operations in Perl
+
 
 use strict;
 use warnings;
+
+# ABSTRACT: set operations in Perl
+
 use English qw( -no_match_vars );
 use 5.010;
 use App::Sets::Iterator;
