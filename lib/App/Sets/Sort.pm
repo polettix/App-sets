@@ -21,10 +21,31 @@ our %EXPORT_TAGS = (
    all => [ @EXPORT_OK ],
 );
 
+sub _test_external_sort {
+   my $filename;
+
+   eval {
+      (my $fh, $filename) = tempfile(); # might croak
+      binmode $fh, ':raw';
+      print {$fh} "one\ntwo\nthree\nfour\n" or die 'whatever';
+      close $fh or die 'whatever';
+   } or return;
+
+   open my $fh, '-|', 'sort', '-u', $filename or return;
+   return unless $fh;
+   my @lines = <$fh>;
+   return unless scalar(@lines) == 4;
+   return unless defined $lines[3];
+   $lines[3] =~ s{\s+}{}gmxs;
+   return unless $lines[3] eq 'two';
+
+   return 1;
+}
+
 sub sort_filehandle {
    my ($filename, $config) = @_;
    $config ||= {};
-   state $has_sort = ! $config->{internal_sort};
+   state $has_sort = (!$config->{internal_sort}) && _test_external_sort();
 
    if ($has_sort) {
       my $fh;
