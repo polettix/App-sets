@@ -1,4 +1,6 @@
 {{$NEXT}}
+
+0.974     2016-04-06 22:11:35+02:00 Europe/Rome
    - a couple Windows Win32 seem to be happy with the tests now
    - release
 
