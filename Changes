@@ -1,4 +1,6 @@
 {{$NEXT}}
+   - a couple Windows Win32 seem to be happy with the tests now
+   - release
 
 0.973_07  2016-04-05 19:36:48+02:00 Europe/Rome (TRIAL RELEASE)
    - made test about presence of 'sort' more strict
