@@ -31,8 +31,10 @@ sub _test_external_sort {
       close $fh or die 'whatever';
    } or return;
 
-   open my $fh, '-|', 'sort', '-u', $filename or return;
-   return unless $fh;
+   my $fh = eval {
+      open my $tfh, '-|', 'sort', '-u', $filename;
+      $tfh;
+   } or return;
    my @lines = <$fh>;
    return unless scalar(@lines) == 4;
    return unless defined $lines[3];
