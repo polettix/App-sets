@@ -5,19 +5,22 @@
 # __MOBUNDLE_INCLUSION__
 BEGIN {
    my %file_for = (
+# __MOBUNDLE_FILES__
+
+
+# __MOBUNDLE_FILE__
 
       'App/Sets.pm' => <<'END_OF_FILE',
  package App::Sets;
- {
-   $App::Sets::VERSION = '0.973';
- }
+ $App::Sets::VERSION = '0.974';
  
- # ABSTRACT: set operations in Perl
  
  use strict;
  use warnings;
+ 
+ # ABSTRACT: set operations in Perl
+ 
  use English qw( -no_match_vars );
- use IPC::Open2 qw< open2 >;
  use 5.010;
  use Getopt::Long
    qw< GetOptionsFromArray :config pass_through no_ignore_case bundling >;
@@ -25,8 +28,11 @@ BEGIN {
  use Log::Log4perl::Tiny qw< :easy :dead_if_first LOGLEVEL >;
  use App::Sets::Parser;
  use App::Sets::Iterator;
+ use App::Sets::Operations;
+ use App::Sets::Sort qw< sort_filehandle >;
  
  my %config = (
+    binmode => ':raw:encoding(UTF-8)',
     loglevel => 'INFO',
     parsedebug => 0,
  );
@@ -41,18 +47,27 @@ BEGIN {
        if exists $ENV{SETS_LOGLEVEL};
     $config{parsedebug}  = $ENV{SETS_PARSEDEBUG}
        if exists $ENV{SETS_PARSEDEBUG};
+    $config{internal_sort} = $ENV{SETS_INTERNAL_SORT}
+       if exists $ENV{SETS_INTERNAL_SORT};
+    $config{binmode} = $ENV{SETS_BINMODE} if $ENV{SETS_BINMODE};
     GetOptionsFromArray(
        \@args, \%config, qw< man help usage version
-         trim|t! sorted|s! cache|cache-sorted|S=s
+         binmode|b=s
+         cache|cache-sorted|S=s
+         internal_sort|internal-sort|I!
          loglevel|l=s
+         sorted|s!
+         trim|t!
          >
       )
       or pod2usage(
        -verbose  => 99,
        -sections => 'USAGE',
       );
-    our $VERSION; ${VERSION} //= '0.972' unless defined $VERSION;
-    pod2usage(message => "$0 $VERSION", -verbose => 99, -sections => ' ')
+    $App::Sets::VERSION
+         //= '0.972' unless defined $App::Sets::VERSION;
+    pod2usage(message => "$0 $App::Sets::VERSION", -verbose => 99,
+        -sections => ' ')
       if $config{version};
     pod2usage(
        -verbose  => 99,
@@ -114,10 +129,12 @@ BEGIN {
     my $expression = App::Sets::Parser::parse($input, 0);
     LOGLEVEL($config{loglevel});
  
+    binmode STDOUT, $config{binmode};
+ 
     my $it = expression($expression);
     while (defined(my $item = $it->drop())) {
-       print $item;
-       print "\n" if $config{trim};
+       print {*STDOUT} $item;
+       print {*STDOUT} "\n" if $config{trim};
     }
     return;
  } ## end sub run
@@ -132,19 +149,13 @@ BEGIN {
     my ($expression) = @_;
     if (ref $expression) {    # operation
        my ($op, $l, $r) = @$expression;
-       return __PACKAGE__->can($op)->(expression($l), expression($r));
+       my $sub = App::Sets::Operations->can($op);
+       return $sub->(expression($l), expression($r));
     }
     else {                    # plain file
        return file($expression);
     }
  } ## end sub expression
- 
- sub _sort_filehandle {
-    my ($filename) = @_;
-    open my $fh, '-|', 'sort', '-u', $filename
-      or LOGDIE "open() sort -u '$filename': $OS_ERROR";
-    return $fh;
- } ## end sub _sort_filehandle
  
  sub file {
     my ($filename) = @_;
@@ -156,7 +167,7 @@ BEGIN {
        if (!-e $cache_filename) {    # generate cache file
           WARN "generating cached sorted file "
             . "'$cache_filename', might wait a bit...";
-          my $ifh = _sort_filehandle($filename);
+          my $ifh = sort_filehandle($filename, \%config);
           open my $ofh, '>', $cache_filename
             or LOGDIE "open('$cache_filename') for output: $OS_ERROR";
           while (<$ifh>) {
@@ -178,7 +189,7 @@ BEGIN {
     } ## end if ($config{sorted})
     else {
        INFO "opening '$filename' and sorting on the fly";
-       $fh = _sort_filehandle($filename);
+       $fh = sort_filehandle($filename, \%config);
     }
     return App::Sets::Iterator->new(
        sub {
@@ -191,83 +202,9 @@ BEGIN {
     );
  } ## end sub file
  
- sub intersect {
-    my ($l, $r) = @_;
-    my ($lh, $rh);
-    return App::Sets::Iterator->new(
-       sub {
-          while ('necessary') {
-             $lh //= $l->drop() // last;
-             $rh //= $r->drop() // last;
-             if ($lh eq $rh) {
-                my $retval = $lh;
-                $lh = $rh = undef;
-                return $retval;
-             }
-             elsif ($lh gt $rh) {
-                $rh = undef;
-             }
-             else {
-                $lh = undef;
-             }
-          } ## end while ('necessary')
-          return undef;
-       }
-    );
- } ## end sub intersect
- 
- sub union {
-    my ($l, $r) = @_;
-    my ($lh, $rh);
-    return App::Sets::Iterator->new(
-       sub {
-          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
-             if ($lh eq $rh) {
-                $r->drop();
-                return $l->drop();
-             }
-             elsif ($lh lt $rh) {
-                return $l->drop();
-             }
-             else {
-                return $r->drop();
-             }
-          } ## end while (defined($lh = $l->head...
-          while (defined($lh = $l->drop())) {
-             return $lh;
-          }
-          while (defined($rh = $r->drop())) {
-             return $rh;
-          }
-          return undef;
-       }
-    );
- } ## end sub union
- 
- sub minus {
-    my ($l, $r) = @_;
-    my ($lh, $rh);
-    return App::Sets::Iterator->new(
-       sub {
-          while (defined($lh = $l->head()) && defined($rh = $r->head())) {
-             if ($lh eq $rh) {    # shared, drop both
-                $r->drop();
-                $l->drop();
-             }
-             elsif ($lh lt $rh) {    # only in left, OK!
-                return $l->drop();
-             }
-             else {                  # only in right, go on
-                $r->drop();
-             }
-          } ## end while (defined($lh = $l->head...
-          return $l->drop();
-       }
-    );
- } ## end sub minus
- 
  1;
  
+ __END__
  
  =pod
  
@@ -277,7 +214,7 @@ BEGIN {
  
  =head1 VERSION
  
- version 0.973
+ version 0.974
  
  =head1 AUTHOR
  
@@ -285,7 +222,7 @@ BEGIN {
  
  =head1 COPYRIGHT AND LICENSE
  
- Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+ Copyright (C) 2011-2016 by Flavio Poletti polettix@cpan.org.
  
  This module is free software.  You can redistribute it and/or
  modify it under the terms of the Artistic License 2.0.
@@ -295,17 +232,85 @@ BEGIN {
  merchantability or fitness for a particular purpose.
  
  =cut
- 
- 
- __END__
 
 END_OF_FILE
 
+
+# __MOBUNDLE_FILE__
+
+      'App/Sets/Iterator.pm' => <<'END_OF_FILE',
+ package App::Sets::Iterator;
+ $App::Sets::Iterator::VERSION = '0.974';
+ 
+ 
+ use strict;
+ use warnings;
+ 
+ # ABSTRACT: convenience iterator
+ 
+ sub new {
+    my ($package, $it) = @_;
+    return bless {it => $it}, $package;
+ }
+ 
+ sub head {
+    my ($self) = @_;
+    return exists $self->{head} ? $self->{head} : $self->next();
+ }
+ 
+ sub next {
+    my ($self) = @_;
+    return $self->{head} = $self->{it}->();
+ }
+ 
+ sub drop {
+    my ($self) = @_;
+    my $retval = $self->head();
+    $self->next();
+    return $retval;
+ } ## end sub drop
+ 
+ 1;
+ 
+ __END__
+ 
+ =pod
+ 
+ =head1 NAME
+ 
+ App::Sets::Iterator - convenience iterator
+ 
+ =head1 VERSION
+ 
+ version 0.974
+ 
+ =head1 AUTHOR
+ 
+ Flavio Poletti <polettix@cpan.org>
+ 
+ =head1 COPYRIGHT AND LICENSE
+ 
+ Copyright (C) 2011-2016 by Flavio Poletti polettix@cpan.org.
+ 
+ This module is free software.  You can redistribute it and/or
+ modify it under the terms of the Artistic License 2.0.
+ 
+ This program is distributed in the hope that it will be useful,
+ but without any warranty; without even the implied warranty of
+ merchantability or fitness for a particular purpose.
+ 
+ =cut
+
+END_OF_FILE
+
+
+# __MOBUNDLE_FILE__
+
       'App/Sets/Parser.pm' => <<'END_OF_FILE',
  package App::Sets::Parser;
- {
-   $App::Sets::Parser::VERSION = '0.973';
- }
+ $App::Sets::Parser::VERSION = '0.974';
+ 
+ 
  use strict;
  use warnings;
  use Carp;
@@ -533,7 +538,7 @@ END_OF_FILE
  
  1;
  
- 
+ __END__
  
  =pod
  
@@ -543,7 +548,7 @@ END_OF_FILE
  
  =head1 VERSION
  
- version 0.973
+ version 0.974
  
  =begin grammar
  
@@ -579,7 +584,7 @@ END_OF_FILE
  
  =head1 COPYRIGHT AND LICENSE
  
- Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+ Copyright (C) 2011-2016 by Flavio Poletti polettix@cpan.org.
  
  This module is free software.  You can redistribute it and/or
  modify it under the terms of the Artistic License 2.0.
@@ -589,84 +594,15 @@ END_OF_FILE
  merchantability or fitness for a particular purpose.
  
  =cut
- 
- 
- __END__
 
 END_OF_FILE
 
-      'App/Sets/Iterator.pm' => <<'END_OF_FILE',
- package App::Sets::Iterator;
- {
-   $App::Sets::Iterator::VERSION = '0.973';
- }
- use strict;
- use warnings;
- 
- # ABSTRACT: convenience iterator
- 
- sub new {
-    my ($package, $it) = @_;
-    return bless {it => $it}, $package;
- }
- 
- sub head {
-    my ($self) = @_;
-    return exists $self->{head} ? $self->{head} : $self->next();
- }
- 
- sub next {
-    my ($self) = @_;
-    return $self->{head} = $self->{it}->();
- }
- 
- sub drop {
-    my ($self) = @_;
-    my $retval = $self->head();
-    $self->next();
-    return $retval;
- } ## end sub drop
- 
- 1;
- 
- 
- =pod
- 
- =head1 NAME
- 
- App::Sets::Iterator - convenience iterator
- 
- =head1 VERSION
- 
- version 0.973
- 
- =head1 AUTHOR
- 
- Flavio Poletti <polettix@cpan.org>
- 
- =head1 COPYRIGHT AND LICENSE
- 
- Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
- 
- This module is free software.  You can redistribute it and/or
- modify it under the terms of the Artistic License 2.0.
- 
- This program is distributed in the hope that it will be useful,
- but without any warranty; without even the implied warranty of
- merchantability or fitness for a particular purpose.
- 
- =cut
- 
- 
- __END__
 
-END_OF_FILE
+# __MOBUNDLE_FILE__
 
       'Log/Log4perl/Tiny.pm' => <<'END_OF_FILE',
  package Log::Log4perl::Tiny;
- {
-   $Log::Log4perl::Tiny::VERSION = '1.1.2';
- }
+ $Log::Log4perl::Tiny::VERSION = '1.2.9';
  # ABSTRACT: mimic Log::Log4perl in one single module
  
  use warnings;
@@ -675,6 +611,7 @@ END_OF_FILE
  
  our ($TRACE, $DEBUG, $INFO, $WARN, $ERROR, $FATAL, $OFF, $DEAD);
  my ($_instance, %name_of, %format_for, %id_for);
+ my $LOGDIE_MESSAGE_ON_STDERR = 1;
  
  sub import {
     my ($exporter, @list) = @_;
@@ -693,7 +630,7 @@ END_OF_FILE
     } ## end if (grep { $_ eq ':full_or_fake'...
  
     my (%done, $level_set);
-    ITEM:
+  ITEM:
     for my $item (@list) {
        next ITEM if $done{$item};
        $done{$item} = 1;
@@ -733,7 +670,7 @@ END_OF_FILE
                    $_instance->level($conf);
                 }
              };
-          } ## end if (!Log::Log4perl->can...
+          } ## end if (!'Log::Log4perl'->can...
        } ## end elsif ($item =~ /\A : (mimic | mask | fake) \z/mxs)
        elsif ($item eq ':easy') {
           push @list, qw( :levels :subs :fake );
@@ -742,9 +679,12 @@ END_OF_FILE
           get_logger()->_set_level_if_first($DEAD);
           $level_set = 1;
        }
+       elsif (lc($item) eq ':no_extra_logdie_message') {
+          $LOGDIE_MESSAGE_ON_STDERR = 0;
+       }
     } ## end for my $item (@list)
  
-    if (! $level_set) {
+    if (!$level_set) {
        my $logger = get_logger();
        $logger->_set_level_if_first($INFO);
        $logger->level($logger->level());
@@ -759,21 +699,23 @@ END_OF_FILE
  
     $args{format} = $args{layout} if exists $args{layout};
  
-    if (exists $args{file}) {
-       open my $fh, $args{file}
-         or die "open('$args{file}'): $!";
- 
-       # Autoflush opened file
-       my $previous = select($fh);
-       $|++;
-       select($previous);
- 
-       $args{fh} = $fh;
-    } ## end if (exists $args{file})
+    my $channels_input = [ fh => \*STDERR ];
+    if (exists $args{channels}) {
+       $channels_input = $args{channels};
+    }
+    else {
+       for my $key (qw< file_append file_create file_insecure file fh >) {
+          next unless exists $args{$key};
+          $channels_input = [ $key => $args{$key} ];
+          last;
+       }
+    }
+    my $channels = build_channels($channels_input);
+    $channels = $channels->[0] if @$channels == 1; # remove outer shell
  
     my $self = bless {
-       fh     => \*STDERR,
-       level  => $INFO,
+       fh    => $channels,
+       level => $INFO,
     }, $package;
  
     for my $accessor (qw( level fh format )) {
@@ -786,16 +728,74 @@ END_OF_FILE
     return $self;
  } ## end sub new
  
+ sub build_channels {
+    my @pairs = (@_ && ref($_[0])) ? @{$_[0]} : @_;
+    my @channels;
+    while (@pairs) {
+       my ($key, $value) = splice @pairs, 0, 2;
+ 
+       # some initial validation
+       croak "build_channels(): undefined key in list"
+          unless defined $key;
+       croak "build_channels(): undefined value for key $key"
+          unless defined $value;
+ 
+       # analyze the key-value pair and set the channel accordingly
+       my ($channel, $set_autoflush);
+       if ($key =~ m{\A(?: fh | sub | code | channel )\z}mxs) {
+          $channel = $value;
+       }
+       elsif ($key eq 'file_append') {
+          open $channel, '>>', $value
+            or croak "open('$value') for appending: $!";
+          $set_autoflush = 1;
+       }
+       elsif ($key eq 'file_create') {
+          open $channel, '>', $value
+            or croak "open('$value') for creating: $!";
+          $set_autoflush = 1;
+       }
+       elsif ($key =~ m{\A file (?: _insecure )? \z}mxs) {
+          open $channel, $value
+            or croak "open('$value'): $!";
+          $set_autoflush = 1;
+       }
+       else {
+          croak "unsupported channel key '$key'";
+       }
+ 
+       # autoflush new filehandle if applicable
+       if ($set_autoflush) {
+          my $previous = select($channel);
+          $|++;
+          select($previous);
+       } ## end if (exists $args{file})
+ 
+       # record the channel, on to the next
+       push @channels, $channel;
+    }
+    return \@channels;
+ }
+ 
  sub get_logger { return $_instance ||= __PACKAGE__->new(); }
  sub LOGLEVEL { return get_logger()->level(@_); }
+ sub LEVELID_FOR {
+    my $level = shift;
+    return $id_for{$level} if exists $id_for{$level};
+    return;
+ }
+ sub LEVELNAME_FOR {
+    my $id = shift;
+    return $name_of{$id} if exists $name_of{$id};
+    return $id if exists $id_for{$id};
+    return;
+ }
  
  sub format {
     my $self = shift;
  
     if (@_) {
        $self->{format} = shift;
-       $self->{args}   = [];
- 
        $self->{args} = \my @args;
        my $replace = sub {
           my ($num, $op) = @_;
@@ -821,6 +821,16 @@ END_OF_FILE
  
  *layout = \&format;
  
+ sub emit_log {
+    my ($self, $message) = @_;
+    my $fh = $self->{fh};
+    for my $channel ((ref($fh) eq 'ARRAY') ? (@$fh) : ($fh)) {
+       (ref($channel) eq 'CODE') ? $channel->($message, $self)
+                                 : print {$channel} $message;
+    }
+    return;
+ }
+ 
  sub log {
     my $self = shift;
     return if $self->{level} == $DEAD;
@@ -835,10 +845,7 @@ END_OF_FILE
     my $message = sprintf $self->{format},
       map { $format_for{$_}[1]->(\%data_for); } @{$self->{args}};
  
-    my $fh = $self->{fh};
-    ref($fh) eq 'CODE' ? $fh->($message, $self) : print {$fh} $message;
- 
-    return;
+    return $self->emit_log($message);
  } ## end sub log
  
  sub ALWAYS { return $_instance->log($OFF, @_); }
@@ -854,14 +861,34 @@ END_OF_FILE
  sub logwarn {
     my $self = shift;
     $self->warn(@_);
-    CORE::warn(@_);
-    $self->_exit();
+ 
+    # default warning when nothing is passed to warn
+    push @_, "Warning: something's wrong" unless @_;
+ 
+    # add 'at <file> line <line>' unless argument ends in "\n";
+    my (undef, $file, $line) = caller(1);
+    push @_, sprintf " at %s line %d.\n", $file, $line
+       if substr($_[-1], -1, 1) ne "\n";
+ 
+    # go for it!
+    CORE::warn(@_) if $LOGDIE_MESSAGE_ON_STDERR;
  } ## end sub logwarn
  
  sub logdie {
     my $self = shift;
     $self->fatal(@_);
-    CORE::die(@_);
+ 
+    # default die message when nothing is passed to die
+    push @_, "Died" unless @_;
+ 
+    # add 'at <file> line <line>' unless argument ends in "\n";
+    my (undef, $file, $line) = caller(1);
+    push @_, sprintf " at %s line %d.\n", $file, $line
+       if substr($_[-1], -1, 1) ne "\n";
+ 
+    # go for it!
+    CORE::die(@_) if $LOGDIE_MESSAGE_ON_STDERR;
+ 
     $self->_exit();
  } ## end sub logdie
  
@@ -873,30 +900,62 @@ END_OF_FILE
  
  sub logcarp {
     my $self = shift;
-    $self->warn(@_);
     require Carp;
-    Carp::carp(@_);
+    $Carp::Internal{$_} = 1 for __PACKAGE__;
+    if ($self->is_warn()) { # avoid unless we're allowed to emit
+       my $message = Carp::shortmess(@_);
+       $self->warn($_) for split m{\n}mxs, $message;
+    }
+    if ($LOGDIE_MESSAGE_ON_STDERR) {
+       local $Carp::CarpLevel = $Carp::CarpLevel + 1;
+       Carp::carp(@_);
+    }
+    return;
  } ## end sub logcarp
  
  sub logcluck {
     my $self = shift;
-    $self->warn(@_);
     require Carp;
-    Carp::cluck(@_);
+    $Carp::Internal{$_} = 1 for __PACKAGE__;
+    if ($self->is_warn()) { # avoid unless we're allowed to emit
+       my $message = Carp::longmess(@_);
+       $self->warn($_) for split m{\n}mxs, $message;
+    }
+    if ($LOGDIE_MESSAGE_ON_STDERR) {
+       local $Carp::CarpLevel = $Carp::CarpLevel + 1;
+       Carp::cluck(@_);
+    }
+    return;
  } ## end sub logcluck
  
  sub logcroak {
     my $self = shift;
-    $self->fatal(@_);
     require Carp;
-    Carp::croak(@_);
+    $Carp::Internal{$_} = 1 for __PACKAGE__;
+    if ($self->is_fatal()) { # avoid unless we're allowed to emit
+       my $message = Carp::shortmess(@_);
+       $self->fatal($_) for split m{\n}mxs, $message;
+    }
+    if ($LOGDIE_MESSAGE_ON_STDERR) {
+       local $Carp::CarpLevel = $Carp::CarpLevel + 1;
+       Carp::croak(@_);
+    }
+    $self->_exit();
  } ## end sub logcroak
  
  sub logconfess {
     my $self = shift;
-    $self->fatal(@_);
     require Carp;
-    Carp::confess(@_);
+    $Carp::Internal{$_} = 1 for __PACKAGE__;
+    if ($self->is_fatal()) { # avoid unless we're allowed to emit
+       my $message = Carp::longmess(@_);
+       $self->fatal($_) for split m{\n}mxs, $message;
+    }
+    if ($LOGDIE_MESSAGE_ON_STDERR) {
+       local $Carp::CarpLevel = $Carp::CarpLevel + 1;
+       Carp::confess(@_);
+    }
+    $self->_exit();
  } ## end sub logconfess
  
  sub level {
@@ -907,23 +966,35 @@ END_OF_FILE
        return unless exists $id_for{$level};
        $self->{level} = $id_for{$level};
        $self->{_count}++;
-    }
+    } ## end if (@_)
     return $self->{level};
- }
+ } ## end sub level
  
  sub _set_level_if_first {
     my ($self, $level) = @_;
-    if (! $self->{_count}) {
+    if (!$self->{_count}) {
        $self->level($level);
        delete $self->{_count};
     }
     return;
- }
+ } ## end sub _set_level_if_first
  
  BEGIN {
  
+    # Time tracking's start time. Used to be tied to $^T but Log::Log4perl
+    # does differently and uses Time::HiRes if available
+    my $start_time = time(); # default, according to Log::Log4perl
+    my $has_time_hires;
+    eval {
+       require Time::HiRes;
+       $has_time_hires = 1;
+       $start_time = [ Time::HiRes::gettimeofday() ];
+    };
+ 
+    # For supporting %R
+    my $last_log = $start_time;
+ 
     # %format_for idea from Log::Tiny by J. M. Adler
-    my $last_log = $^T;
     %format_for = (    # specifiers according to Log::Log4perl
        c => [s => sub { 'main' }],
        C => [
@@ -945,7 +1016,17 @@ END_OF_FILE
                $year + 1900, $mon + 1, $mday, $hour, $min, $sec;
             }
        ],
-       F => [s => sub { (caller(3))[1] },],
+       F => [
+          s => sub {
+             my ($internal_package) = caller 0;
+             for my $i (1 .. 4) {
+                my ($package, $file) = caller $i;
+                last unless defined $package;
+                return $file if $package ne $internal_package;
+             }
+             return '*undef*';
+            }
+       ],
        H => [
           s => sub {
              eval { require Sys::Hostname; Sys::Hostname::hostname() }
@@ -959,7 +1040,17 @@ END_OF_FILE
              sprintf '%s %s (%d)', $subroutine, $filename, $line;
             }
        ],
-       L => [d => sub { (caller(3))[2] },],
+       L => [
+          d => sub {
+             my ($internal_package) = caller 0;
+             for my $i (1 .. 4) {
+                my ($package, undef, $line) = caller $i;
+                last unless defined $package;
+                return $line if $package ne $internal_package;
+             }
+             return -1;
+            }
+       ],
        m => [
           s => sub {
              join(
@@ -968,12 +1059,46 @@ END_OF_FILE
              );
           },
        ],
-       M => [s => sub { (caller(4))[3] },],
-       n => [s => sub { $/ },],
+       M => [
+          s => sub {
+             my ($internal_package) = caller 0;
+             for my $i (1 .. 4) {
+                my ($package) = caller $i;
+                last unless defined $package;
+                return (caller($i + 1))[3] if $package ne $internal_package;
+             }
+             return '*undef*';
+            }
+       ],
+       n => [s => sub { "\n" },],
        p => [s => sub { $name_of{shift->{level}} },],
        P => [d => sub { $$ },],
-       r => [d => sub { time - $^T },],
-       R => [d => sub { my $l = $last_log; ($last_log = time) - $l; },],
+       r => [d => ( $has_time_hires # install sub depending on Time::HiRes
+          ?  sub {
+                my ($s, $m) = Time::HiRes::gettimeofday();
+                $s -= $start_time->[0];
+                $m = int(($m - $start_time->[1]) / 1000);
+                ($s, $m) = ($s - 1, $m + 1000) if $m < 0;
+                return $m + 1000 * $s;
+             }
+          :  sub {
+                return 1000 * (time() - $start_time);
+             }
+       ) ],
+       R => [d => ( $has_time_hires # install sub depending on Time::HiRes
+          ?  sub {
+                my ($sx, $mx) = Time::HiRes::gettimeofday();
+                my $s = $sx - $last_log->[0];
+                my $m = int(($mx - $last_log->[1]) / 1000);
+                ($s, $m) = ($s - 1, $m + 1000) if $m < 0;
+                $last_log = [ $sx, $mx ];
+                return $m + 1000 * $s;
+             }
+          :  sub {
+                my $l = $last_log;
+                return 1000 * (($last_log = time()) - $l);
+             }
+       ) ],
        T => [
           s => sub {
              my $level = 4;
@@ -991,10 +1116,19 @@ END_OF_FILE
     no strict 'refs';
  
     for my $name (qw( FATAL ERROR WARN INFO DEBUG TRACE )) {
+ 
+       # create the ->level methods
        *{__PACKAGE__ . '::' . lc($name)} = sub {
           my $self = shift;
           return $self->log($$name, @_);
        };
+ 
+       # create ->is_level and ->isLevelEnabled methods as well
+       *{__PACKAGE__ . '::is' . ucfirst(lc($name)) . 'Enabled'} =
+         *{__PACKAGE__ . '::is_' . lc($name)} = sub {
+          return 0 if $_[0]->{level} == $DEAD || $$name > $_[0]->{level};
+          return 1;
+         };
     } ## end for my $name (qw( FATAL ERROR WARN INFO DEBUG TRACE ))
  
     for my $name (
@@ -1017,23 +1151,26 @@ END_OF_FILE
           $self->{$accessor} = shift if @_;
           return $self->{$accessor};
        };
-    } ## end for my $accessor (qw( level fh logexit_code ))
+    } ## end for my $accessor (qw( fh logexit_code ))
  
     my $index = -1;
     for my $name (qw( DEAD OFF FATAL ERROR WARN INFO DEBUG TRACE )) {
        $name_of{$$name = $index} = $name;
-       $id_for{$name} = $index;
+       $id_for{$name}  = $index;
        $id_for{$index} = $index;
        ++$index;
-    }
+    } ## end for my $name (qw( DEAD OFF FATAL ERROR WARN INFO DEBUG TRACE ))
  
     get_logger();    # initialises $_instance;
  } ## end BEGIN
  
  1;                  # Magic true value required at end of module
  
+ __END__
  
  =pod
+ 
+ =encoding UTF-8
  
  =head1 NAME
  
@@ -1041,55 +1178,7 @@ END_OF_FILE
  
  =head1 VERSION
  
- version 1.1.2
- 
- =head1 SYNOPSIS
- 
-    use Log::Log4perl::Tiny qw( :easy );
-    Log::Log4perl->easy_init({
-       file   => '>>/var/log/something.log',
-       layout => '[%d] [%-5P:%-5p] %m%n',
-       level  => $INFO,
-    });
- 
-    WARN 'something weird happened';
-    INFO 'just doing it';
-    DEBUG 'this does not get printed at $INFO level';
- 
-    # LOGLEVEL isn't in Log::Log4perl, but might come handy
-    LOGLEVEL($DEBUG);   # enable debugging for small section
-    # otherwise, "get_logger()->level($DEBUG)", see below
- 
-    DEBUG 'now this gets printed';
-    LOGLEVEL($INFO);    # disable debugging again
-    DEBUG 'skipped, again';
-    DEBUG 'complex evaluation value:', sub { 
-       # evaluation skipped if log level filters DEBUG out
-    };
- 
-    # Object-oriented interface is available as well
-    my $logger = get_logger();
-    $logger->level($DEBUG);   # enable debugging for small section
-    $logger->debug('whatever you want');
-    $logger->level($INFO);    # disable debugging again
- 
-    # All stealth loggers are available
-    LOGCONFESS 'I cannot accept this, for a whole stack of reasons!';
- 
-    # Want to change layout?
-    $logger->layout('[%d %p] %m%n');
-    # or, equivalently
-    $logger->format('[%d %p] %m%n');
- 
-    # Want to send the output somewhere else?
-    use IO::Handle;
-    open my $fh, '>>', '/path/to/new.log';
-    $fh->autoflush();
-    $logger->fh($fh);
- 
-    # Want to handle the output message by yourself?
-    my @queue; # all log messages will be put here
-    $logger->fh(sub { push @queue, $_[0] });
+ version 1.2.9
  
  =head1 DESCRIPTION
  
@@ -1281,6 +1370,21 @@ END_OF_FILE
  a file name where to send the log lines. For compatibility with
  L<Log::Log4perl>, a 2-arguments C<open()> will be performed, which
  means you can easily set the opening mode, e.g. C<<< >>filename >>>.
+ 
+ Note that the 2-arguments C<open()> is intrinsically insecure and will
+ trigger the following error when running setuid:
+ 
+    Insecure dependency in open while running setuid
+ 
+ so be sure to use either C<file_create> or C<file_append> instead if
+ you're running setuid. These are extensions added by Log::Log4perl::Tiny
+ to cope with this specific case (and also to allow you avoid the 2-args
+ C<open()> anyway).
+ 
+ Another Log::Log4perl::Tiny extension added as of version 1.3.0 is
+ the key C<channels> where you can pass an array reference with
+ channels descriptions (see L</build_channels> for details).
+ 
  The default is to send logging messages to C<STDERR>;
  
  =item C<< layout >>
@@ -1298,6 +1402,11 @@ END_OF_FILE
  If you call C<easy_init()> with a single unblessed scalar, it is
  considered to be the C<level> and it will be set accordingly.
  Otherwise, you have to pass a hash ref with the keys above.
+ 
+ In addition to the above keys, the C<easy_init()> method installed
+ by Log::Log4perl::Tiny also accepts all keys defined for L</new>, e.g.
+ C<format> (an alias for C<layout>) and the different alternatives to
+ C<file> (C<file_insecure>, C<file_create> and C<file_append>).
  
  =head2 Stealth Loggers
  
@@ -1330,12 +1439,12 @@ END_OF_FILE
  
  =item C<< ALWAYS >>
  
- emit log whatever the configured logging level, apart from C<$OFF> that
+ emit log whatever the configured logging level, apart from C<$DEAD> that
  disables all logging;
  
  =item C<< LOGWARN >>
  
- emit log at C<WARN> level, C<warn()> and then exit;
+ emit log at C<WARN> level and then C<warn()> it;
  
  =item C<< LOGDIE >>
  
@@ -1364,7 +1473,7 @@ END_OF_FILE
  
  =back
  
- If you want to set the exit code for C<LOGWARN> and C<LOGEXIT> above
+ If you want to set the exit code for C<LOGEXIT> above
  (and C<LOGDIE> as well, in case C<die()> does not exit by itself),
  you can go "the L<Log::Log4perl> way" and set
  C<$Log::Log4perl::LOGEXIT_CODE>, or set a code with
@@ -1422,6 +1531,8 @@ END_OF_FILE
      %P pid of the current process
      %r Number of milliseconds elapsed from program start to logging 
         event
+     %R Number of milliseconds elapsed from last logging event including
+        a %R to current logging event
      %% A literal percent (%) sign
  
  Notably, both C<%x> (NDC) and C<%X> (MDC) are missing. Moreover, the
@@ -1430,6 +1541,63 @@ END_OF_FILE
  is fixed. (Thanks to C<Log::Tiny> for the cool trick of how to handle
  the C<printf>-like string, which is probably mutuated from
  C<Log::Log4perl> itself according to the comments).
+ 
+ =head1 SYNOPSYS
+ 
+    use Log::Log4perl::Tiny qw( :easy );
+    Log::Log4perl->easy_init({
+       file   => '/var/log/something.log',
+       layout => '[%d] [%-5P:%-5p] %m%n',
+       level  => $INFO,
+    });
+ 
+    WARN 'something weird happened';
+    INFO 'just doing it';
+    DEBUG 'this does not get printed at $INFO level';
+ 
+    # LOGLEVEL isn't in Log::Log4perl, but might come handy
+    LOGLEVEL($DEBUG);   # enable debugging for small section
+    # otherwise, "get_logger()->level($DEBUG)", see below
+ 
+    DEBUG 'now this gets printed';
+    LOGLEVEL($INFO);    # disable debugging again
+    DEBUG 'skipped, again';
+    DEBUG 'complex evaluation value:', sub { 
+       # evaluation skipped if log level filters DEBUG out
+    };
+ 
+    # Object-oriented interface is available as well
+    my $logger = get_logger();
+    $logger->level($DEBUG);   # enable debugging for small section
+    $logger->debug('whatever you want');
+    $logger->level($INFO);    # disable debugging again
+ 
+    # All stealth loggers are available
+    LOGCONFESS 'I cannot accept this, for a whole stack of reasons!';
+ 
+    # Want to change layout?
+    $logger->layout('[%d %p] %m%n');
+    # or, equivalently
+    $logger->format('[%d %p] %m%n');
+ 
+    # Want to send the output somewhere else?
+    use IO::Handle;
+    open my $fh, '>>', '/path/to/new.log';
+    $fh->autoflush();
+    $logger->fh($fh);
+ 
+    # Want to multiplex output to different channels?
+    $logger->fh(
+       build_channels(
+          fh          => \*STDERR,
+          file_create => '/var/log/lastrun.log',
+          file_append => '/var/log/overall.log',
+       )
+    );
+ 
+    # Want to handle the output message by yourself?
+    my @queue; # e.g. all log messages will be put here
+    $logger->fh(sub { push @queue, $_[0] });
  
  =head1 INTERFACE 
  
@@ -1441,7 +1609,7 @@ END_OF_FILE
  
  The functional interface sports the following functions (imported
  automatically when C<:easy> is passed as import option except for
- C<LOGLEVEL>):
+ C<LEVELID_FOR>, C<LEVELNAME_FOR> and C<LOGLEVEL>):
  
  =over
  
@@ -1463,9 +1631,22 @@ END_OF_FILE
  
  emit log whatever the configured logging level (except C<$DEAD>);
  
+ =item C<< LEVELID_FOR >>
+ 
+ returns the identifier related to a certain level. The input level can be
+ either a name or an identifier itself. Returns C<undef> if it is neither.
+ 
+ It can be used e.g. if you want to use L</log> but you only have the level
+ name, not its identifier;
+ 
+ =item C<< LEVELNAME_FOR >>
+ 
+ returns the name related to a certain level. The input level can be either
+ a name or an identifier itself. Returns C<undef> if it is neither.
+ 
  =item C<< LOGWARN >>
  
- emit log at C<WARN> level, C<warn()> and then exit;
+ emit log at C<WARN> level and then C<warn()> it;
  
  =item C<< LOGDIE >>
  
@@ -1498,6 +1679,75 @@ END_OF_FILE
  
  set the minimum log level for sending a log message to the output;
  
+ =item C<< build_channels >>
+ 
+ (Not in L<Log::Log4perl>) (Not imported with C<:easy>)
+ 
+ build multiple channels for emitting logs.
+ 
+    my $channels = build_channels(@key_value_pairs);  # OR
+    my $channels = build_channels(\@key_value_pairs);
+ 
+ The input is a sequence of key-value pairs, provided either as
+ a list or through a reference to an array containing them. They
+ are not forced into a hash because the same key can appear
+ multiple times to initialize multiple channels.
+ 
+ The key specifies the type of the channel, while the value
+ is specific to the key:
+ 
+ =over
+ 
+ =item B<< fh >>
+ 
+ value is a filehandle (or anything that can be passed to the
+ C<print> function)
+ 
+ =item B<< sub >>
+ 
+ =item B<< code >>
+ 
+ value is a reference to a subroutine. This will be called with
+ two positional parameters: the message (already properly formatted)
+ and a reference to the logger message
+ 
+ =item B<channel>
+ 
+ whatever can be passed to keys C<fh> or to C<sub>/C<code> above
+ 
+ =item B<< file >>
+ 
+ =item B<< file_insecure >>
+ 
+ =item B<< file_create >>
+ 
+ =item B<< file_append >>
+ 
+ value is the file where log data should be sent.
+ 
+ The first one is kept for compliance with Log::Log4perl::easy_init's way
+ of accepting a file. It eventually results in a two-arguments C<open()>
+ call, so that you can quickly set how you want to open the file:
+ 
+    file => '>>/path/to/appended', # append mode
+    file => '>/path/to/new-file',  # create mode
+ 
+ You should avoid doing this, because it is intrinsically insecure and will
+ yield an error message when running setuid:
+ 
+    Insecure dependency in open while running setuid
+ 
+ C<file_insecure> is an alias to C<file>, so that you can explicitly signal
+ to the maintainer that you know what you're doing.
+ 
+ C<file_create> and C<file_append> will use the three-arguments C<open()>
+ call and thus they don't trigger the error above when running setuid. As
+ the respective names suggest the former creates the file from scratch
+ (possibly deleting any previous file with the same path) while the latter
+ opens the file in append mode.
+ 
+ =back
+ 
  =back
  
  =head2 Object-Oriented Interface
@@ -1522,11 +1772,31 @@ END_OF_FILE
  
  =over
  
+ =item B<< channels >>
+ 
+ set a list (through an array reference) of channels. See
+ L</build_channels> for additional information.
+ 
+ =item B<< file >>
+ 
+ =item B<< file_insecure >>
+ 
+ =item B<< file_create >>
+ 
+ =item B<< file_append >>
+ 
+ set the file where the log data will be sent.
+ 
+ The first one is kept for compliance with Log::Log4perl::easy_init's way
+ of accepting a file. It eventually results in a two-arguments C<open()>,
+ so you might want to take care when running in taint mode.
+ 
+ See also L</build_channels> for additional information. This option takes
+ precedence over C<fh> described below.
+ 
  =item B<< format >>
  
  =item B<< layout >>
- 
- =item B<< file >>
  
  =item B<< level >>
  
@@ -1560,13 +1830,39 @@ END_OF_FILE
  
  logging functions, each emits a log at the corresponding level;
  
+ =item C<< is_trace >>
+ 
+ =item C<< is_debug >>
+ 
+ =item C<< is_info >>
+ 
+ =item C<< is_warn >>
+ 
+ =item C<< is_error >>
+ 
+ =item C<< is_fatal >>
+ 
+ =item C<< isTraceEnabled >>
+ 
+ =item C<< isDebugEnabled >>
+ 
+ =item C<< isInfoEnabled >>
+ 
+ =item C<< isWarnEnabled >>
+ 
+ =item C<< isErrorEnabled >>
+ 
+ =item C<< isFatalEnabled >>
+ 
+ log level test functions, each returns the status of the corresponding level;
+ 
  =item C<< always >>
  
  emit log whatever the configured logging level;
  
  =item C<< logwarn >>
  
- emit log at C<WARN> level, C<warn()> and then exit;
+ emit log at C<WARN> level (if allowed) and C<warn()> (always);
  
  =item C<< logdie >>
  
@@ -1604,6 +1900,11 @@ END_OF_FILE
  the first parameter is the log level, the rest is the message to log
  apart from references to subroutines that are first evaluated
  
+ =item C<< emit_log >>
+ 
+ emit the message in the first positional parameter to all logging
+ channels
+ 
  =back
  
  Additionally, you have the following accessors:
@@ -1617,13 +1918,15 @@ END_OF_FILE
  
  =item C<< fh >>
  
- get/set the output filehandle.
+ get/set the output channel.
  
  As an extention over L<Log::Log4perl>,
- you can also set a reference to a subroutine as a filehandle, in
- which case it will be called with two parameters: the message that
- would be print and a reference to the logger object that is calling
- the sub. For example, if you simply want to collect the log
+ you can also pass a reference to a subroutine or to an array.
+ 
+ If you set a reference to a sub,
+ it will be called with two parameters: the message
+ that would be print and a reference to the logger object that is
+ calling the sub. For example, if you simply want to collect the log
  messages without actually outputting them anywhere, you can do this:
  
     my @messages;
@@ -1632,6 +1935,12 @@ END_OF_FILE
        push @messages, $message;
        return;
     });
+ 
+ If you set a reference to an array, each item inside will be used
+ for log output; its elements can be either filehandles or sub
+ references, used as described above. This is a handy way to set
+ multiple output channels (it might be implemented externally
+ through a proper subroutine reference of course).
  
  By default this parameter is set to be equal to C<STDERR>.
  
@@ -1643,7 +1952,7 @@ END_OF_FILE
  
  =item C<< logexit_code >>
  
- get/set the exit code to be used with C<logexit()> and C<logwarn()> (and
+ get/set the exit code to be used with C<logexit()> (and
  C<logdie()> as well if C<die()> doesn't exit).
  
  =back
@@ -1668,7 +1977,7 @@ END_OF_FILE
  
  =head1 COPYRIGHT AND LICENSE
  
- Copyright (C) 2010 by Flavio Poletti <polettix@cpan.org>.
+ Copyright (C) 2010-2016 by Flavio Poletti <polettix@cpan.org>.
  
  This module is free software.  You can redistribute it and/or
  modify it under the terms of the Artistic License 2.0.
@@ -1678,13 +1987,11 @@ END_OF_FILE
  merchantability or fitness for a particular purpose.
  
  =cut
- 
- 
- __END__
- 
 
 END_OF_FILE
 
+
+# __MOBUNDLE_FILE__
    );
 
    unshift @INC, sub {
@@ -1709,7 +2016,7 @@ Log::Log4perl->easy_init(
 use App::Sets;
 App::Sets->run(@ARGV);
 
-
+__END__
 
 =pod
 
@@ -1719,13 +2026,16 @@ sets - set operations in Perl
 
 =head1 VERSION
 
-version 0.973
+version 0.974
 
 =head1 USAGE
 
    sets [--usage] [--help] [--man] [--version]
 
-   sets [--cache-sorted|-S <suffix>]
+   sets [--binmode|-b <string>]
+        [--cache-sorted|-S <suffix>]
+        [--internal-sort|-I]
+        [--loglevel|-l <level>]
         [--sorted|-s]
         [--trim|-t]
         expression...
@@ -1872,6 +2182,12 @@ as multiple arguments instead of a single string.
 
 =over
 
+=item --binmode | -b I<string>
+
+set a string for calling C<binmode> on STDOUT. By default,
+C<:raw:encoding(UTF-8)> is set, to normalize newlines handling and
+expect UTF-8 data in.
+
 =item --cache-sorted | -S I<suffix>
 
 input files are sorted and saved into a file with the same name and the
@@ -1902,6 +2218,17 @@ use C<< --sorted | -s >> instead).
 
 print a somewhat more verbose help, showing usage, this description of
 the options and some examples from the synopsis.
+
+=item --internal-sort | -I
+
+force using the internal sorting facility even if external C<sort> is
+available. Some rough benchmark showed that this is slower about 7%
+with respect to using the external C<sort>, so avoid this if you can.
+
+=item --loglevel | -l I<level>
+
+set the verbosity of the logging subsystem. Allowed values (in increasing
+verbosity): C<TRACE>, C<DEBUG>, C<INFO>, C<WARN>, C<ERROR> and C<FATAL>.
 
 =item --man
 
@@ -1941,8 +2268,22 @@ Some options can be set from the environment:
 
 =item C<SETS_CACHE>
 
-the same as specifying C<< --cache-sorted | -S I<suffix> >> on the command line. The
-contents of C<SETS_CACHE> is used as the I<suffix>.
+the same as specifying C<< --cache-sorted | -S I<suffix> >> on the
+command line. The contents of C<SETS_CACHE> is used as the I<suffix>.
+
+=item C<SETS_INTERNAL_SORT>
+
+the same as specifying C<< --internal-sort | -I >> on the command line.
+
+=item C<SETS_MAX_FILES>
+
+maximum number of (temporary) files to keep when using the internal sorting
+facility.
+
+=item C<SETS_MAX_RECORDS>
+
+maximum number of input records to keep in memory when using the internal
+sorting facility.
 
 =item C<SETS_SORTED>
 
@@ -1961,7 +2302,7 @@ Flavio Poletti <polettix@cpan.org>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2011-2013 by Flavio Poletti polettix@cpan.org.
+Copyright (C) 2011-2016 by Flavio Poletti polettix@cpan.org.
 
 This module is free software.  You can redistribute it and/or
 modify it under the terms of the Artistic License 2.0.
@@ -1971,8 +2312,3 @@ but without any warranty; without even the implied warranty of
 merchantability or fitness for a particular purpose.
 
 =cut
-
-
-__END__
-
-
