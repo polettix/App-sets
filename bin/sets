@@ -13,7 +13,9 @@ Log::Log4perl->easy_init(
 use App::Sets;
 App::Sets->run(@ARGV);
 
-__END__
+=pod
+
+=encoding utf-8
 
 =head1 USAGE
 
